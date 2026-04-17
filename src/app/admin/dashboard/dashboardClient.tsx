@@ -1212,9 +1212,6 @@ export function AdminDashboardClient() {
         </div>
       </div>
 
-      <div className="text-xs text-muted">
-        หมายเหตุ: ตอนนี้ตารางรองรับ filter/pagination/Export แล้ว ต่อไปจะเติมแผงรายละเอียด+แก้ไข+ลบ
-      </div>
     </div>
   );
 }
