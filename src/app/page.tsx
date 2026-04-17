@@ -9,7 +9,7 @@ export default function Home() {
       </div>
 
       {/* NOTE: scale 150% to fill screen per request */}
-      <main className="relative mx-auto w-full max-w-5xl origin-center scale-[1.5] translate-x-[40px]">
+      <main className="relative mx-auto w-full max-w-5xl origin-center lg:scale-[1.15] lg:translate-x-[24px]">
         <div className="grid gap-10 lg:grid-cols-2 lg:place-items-center lg:gap-16">
           <section className="w-full max-w-md space-y-6">
             <div className="flex items-center gap-3">
@@ -36,12 +36,12 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="relative hidden w-full max-w-md lg:block">
+          <section className="relative w-full max-w-md lg:block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/brand/mascot.png"
               alt="KTISX Mascot"
-              className="mx-auto h-[440px] w-auto -translate-y-[30px] select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.25)]"
+              className="mx-auto h-[220px] w-auto select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.25)] lg:h-[440px] lg:-translate-y-[30px]"
             />
           </section>
         </div>

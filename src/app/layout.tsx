@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { Viewport } from "next";
 import { Kanit } from "next/font/google";
 import "./globals.css";
 
@@ -18,6 +19,11 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/brand/logo.png", type: "image/png" }],
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

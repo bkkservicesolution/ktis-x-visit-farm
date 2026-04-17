@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { KTISX_ROLE_COOKIE, type KtisxRole } from "@/lib/authConstants";
+import { AdminMobileNav } from "@/app/admin/AdminMobileNav";
 
 async function getRole(): Promise<KtisxRole | null> {
   const v = (await cookies()).get(KTISX_ROLE_COOKIE)?.value;
@@ -14,6 +15,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto flex w-full max-w-6xl gap-6 px-4 py-8">
+        <div className="w-full lg:hidden">
+          <AdminMobileNav role={role} />
+          <main className="min-w-0">{children}</main>
+        </div>
+
         <aside className="sticky top-8 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col rounded-3xl border border-border bg-card p-5 shadow-sm lg:flex">
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -44,6 +50,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               ดูข้อมูล
               <span className="text-xs text-muted">Admin</span>
             </Link>
+
+            <Link
+              href="/admin/promoters"
+              className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
+            >
+              รายชื่อนักส่งเสริม
+              <span className="text-xs text-muted">Promoters</span>
+            </Link>
           </nav>
 
           <div className="mt-auto space-y-3">
@@ -65,7 +79,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="hidden min-w-0 flex-1 lg:block">{children}</main>
       </div>
     </div>
   );

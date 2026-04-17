@@ -20,7 +20,7 @@ export default async function FormPage() {
       </div>
 
       {/* match home page overall scale/feel (zoomed out) */}
-      <main className="relative mx-auto w-full max-w-6xl origin-center scale-[1] translate-x-[40px]">
+      <main className="relative mx-auto w-full max-w-6xl origin-center lg:translate-x-[24px]">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -65,12 +65,12 @@ export default async function FormPage() {
             <FormClient />
           </section>
 
-          <aside className="relative hidden w-full max-w-xl lg:block lg:justify-self-end">
+          <aside className="relative w-full max-w-xl lg:block lg:justify-self-end">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/brand/mascot.png"
               alt="KTISX Mascot"
-              className="mx-auto h-[660px] w-auto -translate-y-[30px] select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.25)]"
+              className="mx-auto h-[280px] w-auto select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.25)] lg:h-[660px] lg:-translate-y-[30px]"
             />
           </aside>
         </div>

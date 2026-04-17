@@ -202,16 +202,36 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") ?? "").trim();
+  const segmentation = (url.searchParams.get("segmentation") ?? "").trim();
+  const promoter_id = (url.searchParams.get("promoter_id") ?? "").trim();
+  const from = (url.searchParams.get("from") ?? "").trim();
+  const to = (url.searchParams.get("to") ?? "").trim();
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 20), 1), 100);
   const offset = Math.max(Number(url.searchParams.get("offset") ?? 0), 0);
 
   let query = supabaseAdmin()
     .from("onsite_visit_forms")
-    .select("id,created_at,promoter_name,farmer_first_name,farmer_last_name,contract_no", {
+    .select(
+      "id,created_at,promoter_id,promoter_name,farmer_first_name,farmer_last_name,contract_no,land_id,segmentation,area_rai,target_yield_ton_per_rai,planting_window,cane_type,next_appointment,farm_images",
+      {
       count: "exact",
-    })
+      },
+    )
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
+
+  if (segmentation && ["A", "B", "C", "D"].includes(segmentation)) {
+    query = query.eq("segmentation", segmentation);
+  }
+  if (promoter_id) {
+    query = query.eq("promoter_id", promoter_id);
+  }
+  if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    query = query.gte("created_at", `${from}T00:00:00.000Z`);
+  }
+  if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    query = query.lte("created_at", `${to}T23:59:59.999Z`);
+  }
 
   if (q) {
     query = query.or(
@@ -220,6 +240,7 @@ export async function GET(req: Request) {
         `promoter_name.ilike.%${q}%`,
         `farmer_first_name.ilike.%${q}%`,
         `farmer_last_name.ilike.%${q}%`,
+        `land_id.ilike.%${q}%`,
       ].join(","),
     );
   }
