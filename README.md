@@ -1,8 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## KTIS X VISIT FARM
+
+Web app สำหรับกรอกและจัดเก็บข้อมูล “แบบฟอร์มประเมินศักยภาพไร่อ้อย (Onsite Visit Form)” ด้วย Next.js + Supabase และ Deploy บน Vercel
 
 ## Getting Started
 
-First, run the development server:
+### 1) Setup Supabase
+
+- สร้างโปรเจกต์ใน Supabase
+- สร้างตารางโดยรันไฟล์ `supabase/schema.sql` ใน SQL Editor
+
+### 2) Configure environment variables
+
+สร้างไฟล์ `.env.local` (มีตัวอย่างให้ใน `.env.example`) แล้วเติมค่าต่อไปนี้:
+
+```env
+SUPABASE_URL=https://xdqvlohtoruprvryuziz.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...           # server-only ห้ามเผยแพร่
+
+KTISX_FORM_CODE_HASH=...                # SHA-256 (hex) ของ ktisx2026
+KTISX_ADMIN_CODE_HASH=...               # SHA-256 (hex) ของ ktisxadmin2026
+```
+
+### 3) Run development server
+
+Then, run the development server:
 
 ```bash
 npm run dev
@@ -14,11 +35,17 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000` with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Routes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `/` หน้า login (รหัสเดียว กำหนด role)
+- `/form` หน้าแบบฟอร์ม (user/admin)
+- `/admin/dashboard` หน้าดูข้อมูล (admin เท่านั้น)
+
+### Notes
+
+- `.env.local` ถูก ignore โดย git อยู่แล้ว (อย่า commit secret)
 
 ## Learn More
 
