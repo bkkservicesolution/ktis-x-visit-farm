@@ -11,6 +11,13 @@ const kanit = Kanit({
 export const metadata: Metadata = {
   title: "KTIS X VISIT FARM",
   description: "KTIS X VISIT FARM – Onsite Visit Form",
+  icons: {
+    icon: [
+      { url: "/brand/logo.png", type: "image/png" },
+      { url: "/brand/logo.png", type: "image/png", sizes: "32x32" },
+    ],
+    apple: [{ url: "/brand/logo.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({

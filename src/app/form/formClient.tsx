@@ -309,7 +309,9 @@ export function FormClient() {
           const m =
             upJson && typeof upJson === "object" && typeof (upJson as { message?: unknown }).message === "string"
               ? ((upJson as { message?: unknown }).message as string)
-              : "อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่";
+              : upJson && typeof upJson === "object" && typeof (upJson as { detail?: unknown }).detail === "string"
+                ? ((upJson as { detail?: unknown }).detail as string)
+                : "อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่";
           setMessage({ type: "err", text: m });
           return;
         }
