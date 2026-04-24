@@ -121,3 +121,46 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true, id: data.id });
 }
+
+export async function GET(req: Request) {
+  const role = await getRole();
+  if (role !== "admin") return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+
+  const url = new URL(req.url);
+  const q = (url.searchParams.get("q") ?? "").trim();
+  const promoter_id = (url.searchParams.get("promoter_id") ?? "").trim();
+  const from = (url.searchParams.get("from") ?? "").trim();
+  const to = (url.searchParams.get("to") ?? "").trim();
+  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 20), 1), 100);
+  const offset = Math.max(Number(url.searchParams.get("offset") ?? 0), 0);
+
+  let query = supabaseAdmin()
+    .from("heart4rooms_surveys")
+    .select(
+      "id,created_at,created_by_username,promoter_id,submitter_display_name,farmer_first_name,farmer_last_name,contract_no",
+      { count: "exact" },
+    )
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (promoter_id) query = query.eq("promoter_id", promoter_id);
+  if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) query = query.gte("created_at", `${from}T00:00:00.000Z`);
+  if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) query = query.lte("created_at", `${to}T23:59:59.999Z`);
+  if (q) {
+    query = query.or(
+      [
+        `contract_no.ilike.%${q}%`,
+        `farmer_first_name.ilike.%${q}%`,
+        `farmer_last_name.ilike.%${q}%`,
+        `submitter_display_name.ilike.%${q}%`,
+      ].join(","),
+    );
+  }
+
+  const { data, error, count } = await query;
+  if (error) {
+    return NextResponse.json({ ok: false, error: "DB_ERROR", detail: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, rows: data ?? [], count: count ?? 0 });
+}

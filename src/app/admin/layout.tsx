@@ -52,6 +52,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </Link>
 
             <Link
+              href="/admin/heart4rooms"
+              className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
+            >
+              แบบสอบถามหัวใจ 4 ห้อง
+              <span className="text-xs text-muted">Surveys</span>
+            </Link>
+
+            <Link
               href="/admin/promoters"
               className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
             >

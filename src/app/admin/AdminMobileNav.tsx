@@ -12,6 +12,7 @@ export function AdminMobileNav({ role }: { role: string | null }) {
     () => [
       { href: "/form", label: "กรอกฟอร์ม", meta: "/form" },
       { href: "/admin/dashboard", label: "ดูข้อมูล", meta: "Admin" },
+      { href: "/admin/heart4rooms", label: "แบบสอบถามหัวใจ 4 ห้อง", meta: "Surveys" },
       { href: "/admin/promoters", label: "รายชื่อนักส่งเสริม", meta: "Promoters" },
     ],
     [],
