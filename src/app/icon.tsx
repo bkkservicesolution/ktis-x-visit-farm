@@ -11,7 +11,8 @@ function toDataUrlPng(bytes: Buffer): string {
 }
 
 export default async function Icon() {
-  const filePath = path.join(process.cwd(), "public", "brand", "logo.png");
+  // Browser tab icon (favicon) - intentionally separate from in-app logo
+  const filePath = path.join(process.cwd(), "public", "brand", "favicon-32.png");
   const bytes = await readFile(filePath);
   const dataUrl = toDataUrlPng(bytes as Buffer);
 

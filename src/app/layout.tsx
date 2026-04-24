@@ -13,11 +13,17 @@ export const metadata: Metadata = {
   title: "KTIS X VISIT FARM",
   description: "KTIS X VISIT FARM – Onsite Visit Form",
   icons: {
+    // Use generated icon routes so browser icon can differ from in-app logo.
     icon: [
-      { url: "/brand/logo.png", type: "image/png" },
-      { url: "/brand/logo.png", type: "image/png", sizes: "32x32" },
+      { url: "/favicon.ico" },
+      { url: "/icon", type: "image/png", sizes: "32x32" },
+      // fallback static file (some browsers ignore dynamic icon routes)
+      { url: "/brand/favicon-32.png?v=4", type: "image/png", sizes: "32x32" },
     ],
-    apple: [{ url: "/brand/logo.png", type: "image/png" }],
+    apple: [
+      { url: "/apple-icon", type: "image/png", sizes: "180x180" },
+      { url: "/brand/favicon-180.png?v=4", type: "image/png", sizes: "180x180" },
+    ],
   },
 };
 

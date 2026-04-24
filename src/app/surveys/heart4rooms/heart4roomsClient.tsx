@@ -659,13 +659,13 @@ export function Heart4RoomsClient() {
               >
                 <div className="absolute inset-0 bg-black/55 backdrop-blur-[3px]" />
 
-                <div className="relative aspect-square w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-[0_24px_70px_rgba(0,0,0,0.38)]">
+                <div className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-[0_24px_70px_rgba(0,0,0,0.38)] max-h-[80vh]">
                   <div className="absolute inset-0 pointer-events-none">
                     <div className="absolute -top-20 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full bg-accent/15 blur-2xl" />
                   </div>
 
                   <div className="relative flex h-full flex-col p-6">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 shrink-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src="/brand/logo.png?v=2"
@@ -692,7 +692,7 @@ export function Heart4RoomsClient() {
                       </div>
                     </div>
 
-                    <div className="mt-10 flex flex-1 flex-col items-center justify-center text-center">
+                    <div className="mt-6 flex min-h-0 flex-1 flex-col items-center text-center overflow-hidden">
                       <div
                         className={`text-2xl font-semibold tracking-tight ${
                           message.type === "ok" ? "text-foreground" : "text-accent"
@@ -703,13 +703,27 @@ export function Heart4RoomsClient() {
                       {message.title ? (
                         <div className="mt-2 text-sm font-semibold text-foreground">{message.title}</div>
                       ) : null}
-                      <div className="mt-3 whitespace-pre-line text-sm leading-6 text-foreground">{message.text}</div>
+                      {(() => {
+                        const lines = String(message.text ?? "").split("\n");
+                        const head = lines[0] ?? "";
+                        const rest = lines.slice(1).join("\n").trim();
+                        return (
+                          <div className="mt-3 w-full min-h-0 text-sm leading-6 text-foreground">
+                            <div className="whitespace-pre-line">{head}</div>
+                            {rest ? (
+                              <div className="mt-2 max-h-48 overflow-auto rounded-2xl border border-border bg-background/70 p-3 text-left text-sm leading-6">
+                                <div className="whitespace-pre-line">{rest}</div>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <button
                       type="button"
                       onClick={closeMessage}
-                      className="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-foreground px-4 py-3 text-sm font-semibold text-background shadow-sm transition hover:bg-foreground/90 focus:outline-none focus:ring-4 focus:ring-accent/25"
+                      className="mt-4 inline-flex w-full shrink-0 items-center justify-center rounded-2xl bg-foreground px-4 py-3 text-sm font-semibold text-background shadow-sm transition hover:bg-foreground/90 focus:outline-none focus:ring-4 focus:ring-accent/25"
                     >
                       ปิด
                     </button>

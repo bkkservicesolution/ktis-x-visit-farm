@@ -39,7 +39,7 @@ export default function Home() {
           <section className="relative w-full max-w-md lg:block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/brand/mascot.png"
+              src="/brand/mascot-v2.png"
               alt="KTISX Mascot"
               className="mx-auto h-[220px] w-auto select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.25)] lg:h-[440px] lg:-translate-y-[30px]"
             />

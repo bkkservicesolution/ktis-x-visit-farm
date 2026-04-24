@@ -110,7 +110,7 @@ export default async function HomeLandingPage() {
           <aside className="relative flex w-full max-w-md justify-center lg:max-w-none lg:justify-end">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/brand/mascot.png"
+              src="/brand/mascot-v2.png"
               alt="KTISX Mascot"
               className="h-[240px] w-auto select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.2)] sm:h-[320px] lg:h-[520px] lg:-translate-y-[20px]"
             />

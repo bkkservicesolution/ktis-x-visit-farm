@@ -74,7 +74,7 @@ export default async function FormPage() {
           <aside className="relative w-full max-w-xl lg:block lg:justify-self-end">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/brand/mascot.png"
+              src="/brand/mascot-v2.png"
               alt="KTISX Mascot"
               className="mx-auto h-[280px] w-auto select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.25)] lg:h-[660px] lg:-translate-y-[30px]"
             />

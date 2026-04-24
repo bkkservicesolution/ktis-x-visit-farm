@@ -11,7 +11,8 @@ function toDataUrlPng(bytes: Buffer): string {
 }
 
 export default async function AppleIcon() {
-  const filePath = path.join(process.cwd(), "public", "brand", "logo.png");
+  // iOS home screen icon - intentionally separate from in-app logo
+  const filePath = path.join(process.cwd(), "public", "brand", "favicon-180.png");
   const bytes = await readFile(filePath);
   const dataUrl = toDataUrlPng(bytes as Buffer);
 

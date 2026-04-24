@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 type LoginResponse =
   | { ok: true; id: string; role: "user" | "admin" }
@@ -72,9 +73,34 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex w-full items-center justify-center rounded-2xl bg-foreground px-4 py-3 text-sm font-semibold text-background shadow-sm transition hover:bg-foreground/90 focus:outline-none focus:ring-4 focus:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-60"
+        className="group relative mx-auto flex cursor-pointer items-center justify-center bg-transparent p-0 shadow-none transition focus:outline-none focus:ring-4 focus:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-60"
+        aria-busy={pending}
       >
-        {pending ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+        <span className="relative block w-[240px]" style={{ clipPath: "inset(0 round 9999px)" }}>
+          <span className="relative block w-full" style={{ aspectRatio: "830 / 301" }}>
+          <Image
+            src="/assets/login-button-transparent.png"
+            alt={pending ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+            fill
+            sizes="240px"
+            priority
+            className="select-none object-contain object-center"
+          />
+          </span>
+        </span>
+
+        {pending ? (
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 flex items-center justify-center bg-black/15 backdrop-blur-[1px]"
+            style={{ clipPath: "inset(0 round 9999px)" }}
+          >
+            <span className="inline-flex items-center gap-2 rounded-2xl bg-black/55 px-3 py-2 text-xs font-semibold text-white ring-1 ring-white/20">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              กำลังเข้าสู่ระบบ...
+            </span>
+          </span>
+        ) : null}
       </button>
 
       {errorLabel ? (
