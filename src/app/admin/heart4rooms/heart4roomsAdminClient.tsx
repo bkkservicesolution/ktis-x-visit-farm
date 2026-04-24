@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { Heart4SurveySteps, type Heart4SurveyStepsProps } from "@/app/surveys/heart4rooms/heart4SurveySteps";
 
 type Row = {
   id: string;
@@ -29,6 +30,48 @@ type DetailResponse =
   | { ok: true; row: DetailRow }
   | { ok: false; error: string; detail?: unknown };
 
+type PatchResponse =
+  | { ok: true; row: DetailRow }
+  | { ok: false; error: string; detail?: unknown };
+
+function Heart4Preview({
+  answers,
+  editable,
+  setField,
+  mergeField,
+  toggleMulti,
+}: {
+  answers: Heart4SurveyStepsProps["answers"];
+  editable: boolean;
+  setField: Heart4SurveyStepsProps["setField"];
+  mergeField: Heart4SurveyStepsProps["mergeField"];
+  toggleMulti: Heart4SurveyStepsProps["toggleMulti"];
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-background p-4">
+      <div className="text-xs font-medium text-muted">คำถามและคำตอบ (แสดงตามแบบฟอร์ม)</div>
+      <div className="mt-3 max-h-[52vh] overflow-auto pr-1">
+        <div className={editable ? "space-y-8" : "pointer-events-none select-none space-y-8"}>
+          {Array.from({ length: 9 }, (_, i) => i + 1).map((step) => (
+            <div key={step} className="rounded-3xl border border-border bg-card p-4">
+              <div className="text-xs font-semibold tracking-wide text-muted">หน้าที่ {step}/9</div>
+              <div className="mt-3">
+                <Heart4SurveySteps
+                  step={step}
+                  answers={answers}
+                  setField={setField}
+                  mergeField={mergeField}
+                  toggleMulti={toggleMulti}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -53,8 +96,36 @@ export function Heart4RoomsAdminClient() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailRow | null>(null);
   const [deletePending, setDeletePending] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+
+  const [dialogMode, setDialogMode] = useState<"view" | "edit">("view");
+  const [savePending, setSavePending] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [editSubmitter, setEditSubmitter] = useState("");
+  const [editFarmerFirst, setEditFarmerFirst] = useState("");
+  const [editFarmerLast, setEditFarmerLast] = useState("");
+  const [editContractNo, setEditContractNo] = useState("");
+  const [editAnswers, setEditAnswers] = useState<Heart4SurveyStepsProps["answers"]>({});
 
   const title = useMemo(() => `ทั้งหมด ${count.toLocaleString("th-TH")} รายการ`, [count]);
+
+  const selectedCount = useMemo(() => Object.values(selectedIds).filter(Boolean).length, [selectedIds]);
+
+  function buildExportUrl(kind: "all" | "selected") {
+    const sp = new URLSearchParams();
+    if (q.trim()) sp.set("q", q.trim());
+    if (promoterId.trim()) sp.set("promoter_id", promoterId.trim());
+    if (from) sp.set("from", from);
+    if (to) sp.set("to", to);
+    if (kind === "selected") {
+      const ids = Object.entries(selectedIds)
+        .filter(([, v]) => v)
+        .map(([id]) => id);
+      if (ids.length) sp.set("ids", ids.join(","));
+    }
+    return `/api/surveys/heart4rooms/export?${sp.toString()}`;
+  }
 
   async function load(pageOverride?: number) {
     setPending(true);
@@ -131,14 +202,94 @@ export function Heart4RoomsAdminClient() {
     void loadDetail(selectedId);
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!detail || !selectedId) return;
+    setSaveError(null);
+    setEditSubmitter(detail.submitter_display_name ?? "");
+    setEditFarmerFirst(detail.farmer_first_name ?? "");
+    setEditFarmerLast(detail.farmer_last_name ?? "");
+    setEditContractNo(detail.contract_no ?? "");
+    setEditAnswers(
+      detail.answers && typeof detail.answers === "object" && !Array.isArray(detail.answers)
+        ? (detail.answers as Heart4SurveyStepsProps["answers"])
+        : {},
+    );
+  }, [detail, selectedId]);
+
+  function setField(key: string, value: unknown) {
+    setEditAnswers((a) => ({ ...a, [key]: value }));
+  }
+
+  function mergeField(key: string, partial: Record<string, unknown>) {
+    setEditAnswers((a) => {
+      const cur = (a[key] && typeof a[key] === "object" && !Array.isArray(a[key]) ? a[key] : {}) as Record<string, unknown>;
+      return { ...a, [key]: { ...cur, ...partial } };
+    });
+  }
+
+  function toggleMulti(key: string, code: string) {
+    setEditAnswers((a) => {
+      const cur = Array.isArray(a[key]) ? ([...(a[key] as string[])] as string[]) : [];
+      const i = cur.indexOf(code);
+      if (i >= 0) cur.splice(i, 1);
+      else cur.push(code);
+      return { ...a, [key]: cur };
+    });
+  }
+
+  async function onSave() {
+    if (!selectedId || !detail) return;
+    if (savePending) return;
+    setSaveError(null);
+
+    setSavePending(true);
+    try {
+      const res = await fetch(`/api/surveys/heart4rooms/${encodeURIComponent(selectedId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          submitter_display_name: editSubmitter,
+          farmer_first_name: editFarmerFirst,
+          farmer_last_name: editFarmerLast,
+          contract_no: editContractNo,
+          answers: editAnswers,
+        }),
+      });
+      const json = (await res.json().catch(() => null)) as PatchResponse | null;
+      if (!res.ok || !json || json.ok !== true) {
+        setSaveError("บันทึกไม่สำเร็จ");
+        return;
+      }
+
+      setDetail(json.row);
+      setRows((cur) =>
+        cur.map((x) =>
+          x.id !== json.row.id
+            ? x
+            : {
+                ...x,
+                submitter_display_name: json.row.submitter_display_name,
+                farmer_first_name: json.row.farmer_first_name,
+                farmer_last_name: json.row.farmer_last_name,
+                contract_no: json.row.contract_no,
+              },
+        ),
+      );
+      setDialogMode("view");
+    } finally {
+      setSavePending(false);
+    }
+  }
+
   const pages = useMemo(() => Math.max(1, Math.ceil(count / limit)), [count]);
   const canPrev = page > 0 && !pending;
   const canNext = page < pages - 1 && !pending;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <div className="text-xs font-medium text-muted">ค้นหา</div>
             <input
@@ -175,20 +326,37 @@ export function Heart4RoomsAdminClient() {
               className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
             />
           </div>
-        </div>
+          </div>
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              setPage(0);
-              void load(0);
-            }}
-            className="inline-flex items-center justify-center rounded-2xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background shadow-sm transition hover:bg-foreground/90 disabled:opacity-40"
-          >
-            ค้นหา/รีเฟรช
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setPage(0);
+                void load(0);
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background shadow-sm transition hover:bg-foreground/90 disabled:opacity-40"
+            >
+              ค้นหา/รีเฟรช
+            </button>
+
+            <a
+              href={buildExportUrl("all")}
+              className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
+            >
+              Export ทั้งหมด
+            </a>
+
+            <a
+              href={buildExportUrl("selected")}
+              className={`inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 ${
+                selectedCount === 0 ? "pointer-events-none opacity-40" : ""
+              }`}
+            >
+              Export ที่เลือก ({selectedCount})
+            </a>
+          </div>
         </div>
       </div>
 
@@ -228,32 +396,51 @@ export function Heart4RoomsAdminClient() {
       {error ? <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-accent">{error}</div> : null}
 
       <div className="overflow-hidden rounded-3xl border border-border bg-background">
-        <div className="grid grid-cols-14 gap-3 border-b border-border bg-card px-4 py-3 text-xs font-semibold text-muted">
+        <div className="grid grid-cols-13 gap-3 border-b border-border bg-card px-4 py-3 text-xs font-semibold text-muted">
+          <div className="col-span-1">เลือก</div>
           <div className="col-span-3">เวลา</div>
           <div className="col-span-3">ชาวไร่</div>
           <div className="col-span-2">สัญญา</div>
           <div className="col-span-2">ผู้กรอก</div>
-          <div className="col-span-2">promoter_id</div>
           <div className="col-span-2 text-right">การทำงาน</div>
         </div>
         <div className="divide-y divide-border">
           {rows.map((r) => (
             <div
               key={r.id}
-              className="grid grid-cols-14 gap-3 px-4 py-3 text-left text-sm text-foreground transition hover:bg-foreground/5"
+              className="grid grid-cols-13 gap-3 px-4 py-3 text-left text-sm text-foreground transition hover:bg-foreground/5"
             >
+              <div className="col-span-1 flex items-center">
+                <input
+                  type="checkbox"
+                  checked={!!selectedIds[r.id]}
+                  onChange={(e) => setSelectedIds((cur) => ({ ...cur, [r.id]: e.target.checked }))}
+                />
+              </div>
               <div className="col-span-3 text-xs text-muted">{formatDate(r.created_at)}</div>
               <div className="col-span-3 font-semibold">
                 {r.farmer_first_name} {r.farmer_last_name}
               </div>
               <div className="col-span-2">{r.contract_no}</div>
               <div className="col-span-2 truncate text-xs text-muted">{r.submitter_display_name}</div>
-              <div className="col-span-2 truncate text-xs text-muted">{r.promoter_id ?? "—"}</div>
               <div className="col-span-2 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedId(r.id)}
+                  onClick={() => {
+                    setDialogMode("view");
+                    setSelectedId(r.id);
+                  }}
                   className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-foreground/5"
+                >
+                  ดู
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDialogMode("edit");
+                    setSelectedId(r.id);
+                  }}
+                  className="rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90"
                 >
                   แก้ไข
                 </button>
@@ -289,16 +476,30 @@ export function Heart4RoomsAdminClient() {
                 <div className="relative w-full max-w-3xl overflow-hidden rounded-3xl border border-border bg-card shadow-[0_24px_70px_rgba(0,0,0,0.38)]">
                   <div className="flex items-center justify-between border-b border-border px-5 py-4">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-foreground">รายละเอียด</div>
+                      <div className="text-sm font-semibold text-foreground">
+                        {dialogMode === "edit" ? "แก้ไข" : "รายละเอียด"}
+                      </div>
                       <div className="mt-1 truncate text-xs text-muted">{selectedId}</div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(null)}
-                      className="rounded-2xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/5"
-                    >
-                      ปิด
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {dialogMode === "edit" ? (
+                        <button
+                          type="button"
+                          disabled={savePending}
+                          onClick={() => void onSave()}
+                          className="rounded-2xl bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:bg-foreground/90 disabled:opacity-40"
+                        >
+                          {savePending ? "กำลังบันทึก…" : "บันทึก"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(null)}
+                        className="rounded-2xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/5"
+                      >
+                        ปิด
+                      </button>
+                    </div>
                   </div>
 
                   <div className="max-h-[70vh] overflow-auto px-5 py-4">
@@ -314,23 +515,80 @@ export function Heart4RoomsAdminClient() {
                             <div className="mt-1 text-sm font-semibold text-foreground">{formatDate(detail.created_at)}</div>
                           </div>
                           <div className="rounded-2xl border border-border bg-background p-3">
-                            <div className="text-xs font-medium text-muted">ชาวไร่</div>
-                            <div className="mt-1 text-sm font-semibold text-foreground">
-                              {detail.farmer_first_name} {detail.farmer_last_name}
-                            </div>
+                            <div className="text-xs font-medium text-muted">ผู้กรอก</div>
+                            {dialogMode === "edit" ? (
+                              <input
+                                value={editSubmitter}
+                                onChange={(e) => setEditSubmitter(e.target.value)}
+                                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                              />
+                            ) : (
+                              <div className="mt-1 text-sm font-semibold text-foreground">{detail.submitter_display_name}</div>
+                            )}
                           </div>
                           <div className="rounded-2xl border border-border bg-background p-3">
                             <div className="text-xs font-medium text-muted">เลขที่สัญญา</div>
-                            <div className="mt-1 text-sm font-semibold text-foreground">{detail.contract_no}</div>
+                            {dialogMode === "edit" ? (
+                              <input
+                                value={editContractNo}
+                                onChange={(e) => setEditContractNo(e.target.value)}
+                                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                              />
+                            ) : (
+                              <div className="mt-1 text-sm font-semibold text-foreground">{detail.contract_no}</div>
+                            )}
                           </div>
                         </div>
 
-                        <div className="rounded-2xl border border-border bg-background p-4">
-                          <div className="text-xs font-medium text-muted">ข้อมูลดิบ (answers)</div>
-                          <pre className="mt-3 overflow-auto rounded-2xl border border-border bg-card p-3 text-xs text-foreground">
-                            {JSON.stringify(detail.answers ?? null, null, 2)}
-                          </pre>
+                        {saveError ? (
+                          <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-accent">
+                            {saveError}
+                          </div>
+                        ) : null}
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-2xl border border-border bg-background p-3">
+                            <div className="text-xs font-medium text-muted">ชาวไร่: ชื่อ</div>
+                            {dialogMode === "edit" ? (
+                              <input
+                                value={editFarmerFirst}
+                                onChange={(e) => setEditFarmerFirst(e.target.value)}
+                                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                              />
+                            ) : (
+                              <div className="mt-1 text-sm font-semibold text-foreground">{detail.farmer_first_name}</div>
+                            )}
+                          </div>
+                          <div className="rounded-2xl border border-border bg-background p-3">
+                            <div className="text-xs font-medium text-muted">ชาวไร่: นามสกุล</div>
+                            {dialogMode === "edit" ? (
+                              <input
+                                value={editFarmerLast}
+                                onChange={(e) => setEditFarmerLast(e.target.value)}
+                                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                              />
+                            ) : (
+                              <div className="mt-1 text-sm font-semibold text-foreground">{detail.farmer_last_name}</div>
+                            )}
+                          </div>
                         </div>
+
+                        <Heart4Preview
+                          answers={dialogMode === "edit" ? editAnswers : (detail.answers as Heart4SurveyStepsProps["answers"]) ?? {}}
+                          editable={dialogMode === "edit"}
+                          setField={dialogMode === "edit" ? setField : (() => {})}
+                          mergeField={dialogMode === "edit" ? mergeField : (() => {})}
+                          toggleMulti={dialogMode === "edit" ? toggleMulti : (() => {})}
+                        />
+
+                        <details className="rounded-2xl border border-border bg-background p-4">
+                          <summary className="cursor-pointer text-xs font-medium text-muted">
+                            ข้อมูลดิบ (answers)
+                          </summary>
+                          <pre className="mt-3 overflow-auto rounded-2xl border border-border bg-card p-3 text-xs text-foreground">
+                            {JSON.stringify(dialogMode === "edit" ? editAnswers : (detail.answers ?? null), null, 2)}
+                          </pre>
+                        </details>
                       </div>
                     ) : null}
                   </div>

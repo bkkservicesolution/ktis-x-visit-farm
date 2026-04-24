@@ -133,6 +133,14 @@ function Step1({ answers, mergeField }: Heart4SurveyStepsProps) {
         <p className="mt-2 text-sm text-foreground">
           ท่านเคยได้ยิน “หัวใจ 4 ห้องของการทำอ้อย” ที่เป็นหัวใจสำคัญในการทำอ้อยผลผลิตสูงหรือไม่
         </p>
+        <div className="mt-3 overflow-hidden rounded-2xl bg-card">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/heart4rooms/heart4rooms-diagram.png"
+            alt="โครงสร้างระบบหัวใจ 4 ห้อง"
+            className="block h-auto w-full scale-[1.01] object-contain"
+          />
+        </div>
         <RadioRow
           name="q1"
           value={choice}

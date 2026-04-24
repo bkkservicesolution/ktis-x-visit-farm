@@ -14,7 +14,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto flex w-full max-w-6xl gap-6 px-4 py-8">
+      <div className="mx-auto flex w-full max-w-[1400px] gap-6 px-4 py-8">
         <div className="w-full lg:hidden">
           <AdminMobileNav role={role} />
           <main className="min-w-0">{children}</main>
@@ -30,7 +30,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             />
             <div>
               <div className="text-xs font-medium tracking-wide text-muted">KTIS X</div>
-              <div className="text-sm font-semibold text-foreground">VISIT FARM</div>
+              <div className="text-sm font-semibold text-foreground">SURVEYPRO</div>
             </div>
           </div>
 
@@ -40,15 +40,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
             >
               กรอกฟอร์ม
-              <span className="text-xs text-muted">/form</span>
+              <span className="text-xs text-muted">form</span>
             </Link>
 
             <Link
               href="/admin/dashboard"
               className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
             >
-              ดูข้อมูล
-              <span className="text-xs text-muted">Admin</span>
+              แบบประเมินศักยภาพไร่
+              <span className="text-xs text-muted">Onsite</span>
             </Link>
 
             <Link

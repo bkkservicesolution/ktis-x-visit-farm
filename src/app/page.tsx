@@ -21,10 +21,10 @@ export default function Home() {
               />
               <div>
                 <div className="text-sm font-medium tracking-wide text-muted">
-                  แบบฟอร์มประเมินศักยภาพไร่อ้อย (Onsite Visit Form)
+                  โปรแกรมประเมินศักยภาพและสำรวจความคิดเห็น
                 </div>
                 <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                  KTIS X VISIT FARM
+                  KTIS X SURVEYPRO
                 </h1>
               </div>
             </div>

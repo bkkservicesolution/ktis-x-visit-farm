@@ -177,6 +177,7 @@ export function AdminDashboardClient() {
   const [detailPending, setDetailPending] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"view" | "edit">("view");
   const [edit, setEdit] = useState<{
     promoter_id: string;
     land_id: string;
@@ -291,7 +292,7 @@ export function AdminDashboardClient() {
           return;
         }
         setDetail(json.row);
-        setEditMode(false);
+        setEditMode(dialogMode === "edit");
         setEdit({
           promoter_id: json.row.promoter_id ?? "",
           land_id: json.row.land_id ?? "",
@@ -325,7 +326,7 @@ export function AdminDashboardClient() {
     return () => {
       alive = false;
     };
-  }, [selectedId]);
+  }, [selectedId, dialogMode]);
 
   useEffect(() => {
     if (!viewerUrl) return;
@@ -409,6 +410,26 @@ export function AdminDashboardClient() {
     }
   }
 
+  async function onDeleteId(id: string) {
+    if (!window.confirm("ยืนยันลบรายการนี้?")) return;
+    setDetailError(null);
+    setDetailPending(true);
+    try {
+      const res = await fetch(`/api/forms/${id}`, { method: "DELETE" });
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; detail?: unknown } | null;
+      if (!res.ok || !json || json.ok !== true) {
+        const msg = json && typeof json.detail === "string" ? json.detail : "ลบไม่สำเร็จ";
+        setDetailError(msg);
+        return;
+      }
+      if (selectedId === id) setSelectedId(null);
+      setPage(0);
+      await load(0);
+    } finally {
+      setDetailPending(false);
+    }
+  }
+
   function onExportCsv() {
     const csv = toCsv(rows);
     const ts = new Date().toISOString().replaceAll(":", "-");
@@ -447,52 +468,75 @@ export function AdminDashboardClient() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm text-muted">{title}</div>
+      <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="ค้นหา: สัญญา/ชื่อ/นามสกุล/นักส่งเสริม/Land ID"
-            className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 sm:w-[360px]"
-          />
-          <select
-            value={segmentation}
-            onChange={(e) => setSegmentation(e.target.value as "" | "A" | "B" | "C" | "D")}
-            className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 sm:w-[220px]"
-          >
-            <option value="">ทุกกลุ่ม</option>
-            <option value="A">กลุ่ม A</option>
-            <option value="B">กลุ่ม B</option>
-            <option value="C">กลุ่ม C</option>
-            <option value="D">กลุ่ม D</option>
-          </select>
-          <select
-            value={promoterId}
-            onChange={(e) => setPromoterId(e.target.value)}
-            disabled={promotersLoading}
-            className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 sm:w-[260px] disabled:opacity-60"
-          >
-            <option value="">ทุกนักส่งเสริม</option>
-            {promoters.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id} - {p.full_name}
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 sm:w-[170px]"
-          />
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 sm:w-[170px]"
-          />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="sm:col-span-2">
+            <div className="text-xs font-medium text-muted">ค้นหา</div>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="สัญญา/ชื่อ/นามสกุล/นักส่งเสริม/Land ID"
+              className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+            />
+          </div>
+
+          <div>
+            <div className="text-xs font-medium text-muted">ทุกกลุ่ม</div>
+            <select
+              value={segmentation}
+              onChange={(e) => setSegmentation(e.target.value as "" | "A" | "B" | "C" | "D")}
+              className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+            >
+              <option value="">ทุกกลุ่ม</option>
+              <option value="A">กลุ่ม A</option>
+              <option value="B">กลุ่ม B</option>
+              <option value="C">กลุ่ม C</option>
+              <option value="D">กลุ่ม D</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="text-xs font-medium text-muted">ทุกนักส่งเสริม</div>
+            <select
+              value={promoterId}
+              onChange={(e) => setPromoterId(e.target.value)}
+              disabled={promotersLoading}
+              className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:opacity-60"
+            >
+              <option value="">ทุกนักส่งเสริม</option>
+              {promoters.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id} - {p.full_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs font-medium text-muted">ตั้งแต่</div>
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+              />
+            </div>
+            <div>
+              <div className="text-xs font-medium text-muted">ถึง</div>
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             onClick={() => {
               setPage(0);
@@ -517,6 +561,9 @@ export function AdminDashboardClient() {
           >
             Export (ทั้งหมด)
           </button>
+          <div className="text-xs text-muted sm:ml-auto">
+            ช่วงที่แสดง: {pageLabel}
+          </div>
         </div>
       </div>
 
@@ -526,7 +573,7 @@ export function AdminDashboardClient() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+      <div className="grid gap-6">
         <div className="overflow-hidden rounded-2xl border border-border">
           <div className="sm:hidden">
             <div className="divide-y divide-border bg-background">
@@ -536,16 +583,11 @@ export function AdminDashboardClient() {
                 </div>
               ) : (
                 rows.map((r) => {
-                  const active = r.id === selectedId;
                   const imagesCount = (r.farm_images ?? []).length;
                   return (
-                    <button
+                    <div
                       key={r.id}
-                      type="button"
-                      onClick={() => setSelectedId(r.id)}
-                      className={`w-full px-4 py-4 text-left transition ${
-                        active ? "bg-foreground/5" : "hover:bg-foreground/[0.03]"
-                      }`}
+                      className="w-full px-4 py-4 text-left transition hover:bg-foreground/[0.03]"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -574,26 +616,57 @@ export function AdminDashboardClient() {
                         )}
                         <span className="text-xs text-muted">นัดหมาย: {formatDateOnly(r.next_appointment)}</span>
                       </div>
-                    </button>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDialogMode("view");
+                            setSelectedId(r.id);
+                          }}
+                          className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-foreground/5"
+                        >
+                          ดู
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDialogMode("edit");
+                            setSelectedId(r.id);
+                          }}
+                          className="rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90"
+                        >
+                          แก้ไข
+                        </button>
+                        <button
+                          type="button"
+                          disabled={detailPending}
+                          onClick={() => void onDeleteId(r.id)}
+                          className="rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+                        >
+                          ลบ
+                        </button>
+                      </div>
+                    </div>
                   );
                 })
               )}
             </div>
           </div>
 
-          <div className="hidden overflow-x-auto sm:block">
-            <table className="min-w-[1100px] w-full border-collapse bg-background text-left text-sm">
+          <div className="hidden sm:block">
+            <table className="w-full border-collapse bg-background text-left text-sm">
               <thead className="bg-foreground/[0.04]">
                 <tr className="text-foreground">
                   <th className="px-4 py-3 font-semibold">วันที่</th>
                   <th className="px-4 py-3 font-semibold">นักส่งเสริม</th>
                   <th className="px-4 py-3 font-semibold">เลขที่สัญญา</th>
-                  <th className="px-4 py-3 font-semibold">ชื่อ</th>
-                  <th className="px-4 py-3 font-semibold">นามสกุล</th>
+                  <th className="px-4 py-3 font-semibold">ชาวไร่</th>
                   <th className="px-4 py-3 font-semibold">Land ID</th>
                   <th className="px-4 py-3 font-semibold">กลุ่ม</th>
                   <th className="px-4 py-3 font-semibold">นัดหมาย</th>
                   <th className="px-4 py-3 font-semibold">รูป</th>
+                  <th className="px-4 py-3 font-semibold text-right">การทำงาน</th>
                 </tr>
               </thead>
               <tbody>
@@ -605,21 +678,18 @@ export function AdminDashboardClient() {
                   </tr>
                 ) : (
                   rows.map((r) => {
-                    const active = r.id === selectedId;
                     const imagesCount = (r.farm_images ?? []).length;
                     return (
                       <tr
                         key={r.id}
-                        className={`border-t border-border cursor-pointer transition ${
-                          active ? "bg-foreground/5" : "hover:bg-foreground/[0.03]"
-                        }`}
-                        onClick={() => setSelectedId(r.id)}
+                        className="border-t border-border transition hover:bg-foreground/[0.03]"
                       >
                         <td className="px-4 py-3 text-muted">{formatDate(r.created_at)}</td>
                         <td className="px-4 py-3">{r.promoter_name}</td>
                         <td className="px-4 py-3 font-medium">{r.contract_no}</td>
-                        <td className="px-4 py-3">{r.farmer_first_name}</td>
-                        <td className="px-4 py-3">{r.farmer_last_name}</td>
+                        <td className="px-4 py-3">
+                          {r.farmer_first_name} {r.farmer_last_name}
+                        </td>
                         <td className="px-4 py-3">{r.land_id ?? "—"}</td>
                         <td className="px-4 py-3">
                           {r.segmentation ? (
@@ -634,6 +704,38 @@ export function AdminDashboardClient() {
                         <td className="px-4 py-3">
                           <span className="text-muted">{imagesCount}</span>
                         </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDialogMode("view");
+                                setSelectedId(r.id);
+                              }}
+                              className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-foreground/5"
+                            >
+                              ดู
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDialogMode("edit");
+                                setSelectedId(r.id);
+                              }}
+                              className="rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90"
+                            >
+                              แก้ไข
+                            </button>
+                            <button
+                              type="button"
+                              disabled={detailPending}
+                              onClick={() => void onDeleteId(r.id)}
+                              className="rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+                            >
+                              ลบ
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })
@@ -643,11 +745,66 @@ export function AdminDashboardClient() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-background p-4">
-          <div className="text-sm font-semibold text-foreground">รายละเอียด</div>
-          <div className="mt-1 text-xs text-muted">
-            เลือกรายการจากตารางเพื่อดูรายละเอียด (และแก้ไข/ลบ)
-          </div>
+        {selectedId ? (
+          <div
+            className="fixed inset-0 z-[9998] flex items-center justify-center px-4"
+            role="dialog"
+            aria-modal="true"
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget) setSelectedId(null);
+            }}
+          >
+            <div className="absolute inset-0 bg-black/55 backdrop-blur-[3px]" />
+            <div className="relative w-full max-w-5xl overflow-hidden rounded-3xl border border-border bg-card shadow-[0_24px_70px_rgba(0,0,0,0.38)]">
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-foreground">รายละเอียดแบบประเมินศักยภาพไร่ (Onsite)</div>
+                  <div className="mt-1 truncate text-xs text-muted">{selectedId}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDialogMode("view");
+                      setEditMode(false);
+                    }}
+                    className={`rounded-2xl px-3 py-2 text-sm font-semibold transition ${
+                      !editMode ? "bg-foreground text-background" : "border border-border bg-background text-foreground hover:bg-foreground/5"
+                    }`}
+                  >
+                    ดู
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDialogMode("edit");
+                      setEditMode(true);
+                    }}
+                    className={`rounded-2xl px-3 py-2 text-sm font-semibold transition ${
+                      editMode ? "bg-foreground text-background" : "border border-border bg-background text-foreground hover:bg-foreground/5"
+                    }`}
+                  >
+                    แก้ไข
+                  </button>
+                  <button
+                    type="button"
+                    disabled={detailPending}
+                    onClick={() => void onDelete()}
+                    className="rounded-2xl bg-accent px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+                  >
+                    ลบ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(null)}
+                    className="rounded-2xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/5"
+                  >
+                    ปิด
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-[78vh] overflow-auto p-5">
           {detailError ? (
             <div className="mt-4 rounded-2xl border border-border bg-background px-4 py-3 text-sm text-accent">
               {detailError}
@@ -1129,7 +1286,10 @@ export function AdminDashboardClient() {
               <div className="py-6 text-sm text-muted">ไม่พบข้อมูล</div>
             )}
           </div>
-        </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {viewerUrl

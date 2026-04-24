@@ -34,7 +34,7 @@ export default async function FormPage() {
                 แบบฟอร์มประเมินศักยภาพไร่อ้อย (Onsite Visit Form)
               </div>
               <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                KTIS X VISIT FARM
+                KTIS X SURVEYPRO
               </h1>
             </div>
           </div>

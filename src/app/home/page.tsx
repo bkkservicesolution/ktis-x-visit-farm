@@ -28,7 +28,7 @@ export default async function HomeLandingPage() {
               className="h-12 w-12 shrink-0 rounded-2xl border border-border bg-card object-cover p-1 shadow-sm sm:h-16 sm:w-16"
             />
             <div className="min-w-0">
-              <div className="text-xs font-medium tracking-wide text-muted sm:text-sm">KTIS X VISIT FARM</div>
+              <div className="text-xs font-medium tracking-wide text-muted sm:text-sm">KTIS X SURVEYPRO</div>
               <h1 className="text-lg font-semibold leading-snug tracking-tight text-foreground sm:text-3xl sm:leading-tight">
                 เลือกแบบฟอร์ม
               </h1>

@@ -10,8 +10,8 @@ export function AdminMobileNav({ role }: { role: string | null }) {
 
   const items = useMemo<NavItem[]>(
     () => [
-      { href: "/form", label: "กรอกฟอร์ม", meta: "/form" },
-      { href: "/admin/dashboard", label: "ดูข้อมูล", meta: "Admin" },
+      { href: "/form", label: "กรอกฟอร์ม", meta: "form" },
+      { href: "/admin/dashboard", label: "แบบประเมินศักยภาพไร่", meta: "Onsite" },
       { href: "/admin/heart4rooms", label: "แบบสอบถามหัวใจ 4 ห้อง", meta: "Surveys" },
       { href: "/admin/promoters", label: "รายชื่อนักส่งเสริม", meta: "Promoters" },
     ],
@@ -39,7 +39,7 @@ export function AdminMobileNav({ role }: { role: string | null }) {
               className="h-10 w-10 rounded-2xl border border-border bg-card object-cover p-1 shadow-sm"
             />
             <div className="min-w-0">
-              <div className="text-xs font-medium tracking-wide text-muted">KTIS X VISIT FARM</div>
+              <div className="text-xs font-medium tracking-wide text-muted">KTIS X SURVEYPRO</div>
               <div className="truncate text-xs text-muted">
                 สิทธิ์:{" "}
                 <span className={role === "admin" ? "font-semibold text-foreground" : "font-semibold text-accent"}>

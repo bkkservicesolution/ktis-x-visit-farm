@@ -20,12 +20,21 @@ export default async function Heart4RoomsPage() {
       </div>
 
       <main className="relative mx-auto w-full max-w-3xl">
-        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-xs font-medium tracking-wide text-muted">แบบฟอร์มประเมินหัวใจ 4 ห้อง</div>
-            <h1 className="text-xl font-semibold text-foreground">Heart 4 Rooms Survey</h1>
+        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/logo.png?v=2"
+              alt="KTISX"
+              className="h-16 w-16 rounded-2xl border border-border bg-card object-cover p-1 shadow-sm"
+            />
+            <div>
+              <div className="text-sm font-medium tracking-wide text-muted">แบบฟอร์มประเมินหัวใจ 4 ห้อง</div>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">KTIS X SURVEYPRO</h1>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+
+          <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/home"
               className="inline-flex items-center justify-center rounded-2xl border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"

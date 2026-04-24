@@ -10,8 +10,8 @@ const kanit = Kanit({
 });
 
 export const metadata: Metadata = {
-  title: "KTIS X VISIT FARM",
-  description: "KTIS X VISIT FARM – Onsite Visit Form",
+  title: "KTIS X SURVEYPRO",
+  description: "KTIS X SURVEYPRO – โปรแกรมประเมินศักยภาพและสำรวจความคิดเห็น",
   icons: {
     // Use generated icon routes so browser icon can differ from in-app logo.
     icon: [
