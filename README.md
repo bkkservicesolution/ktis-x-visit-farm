@@ -7,7 +7,7 @@ Web app สำหรับกรอกและจัดเก็บข้อม
 ### 1) Setup Supabase
 
 - สร้างโปรเจกต์ใน Supabase
-- สร้างตารางโดยรันไฟล์ `supabase/schema.sql` ใน SQL Editor
+- สร้างตารางโดยรันไฟล์ `supabase/schema.sql` และสคริปต์ที่เกี่ยวข้อง (เช่น `supabase/users.sql`, `supabase/promoters.sql`, `supabase/heart4rooms_surveys.sql`) ใน SQL Editor
 
 ### 2) Configure environment variables
 
@@ -16,9 +16,6 @@ Web app สำหรับกรอกและจัดเก็บข้อม
 ```env
 SUPABASE_URL=https://xdqvlohtoruprvryuziz.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...           # server-only ห้ามเผยแพร่
-
-KTISX_FORM_CODE_HASH=...                # SHA-256 (hex) ของ ktisx2026
-KTISX_ADMIN_CODE_HASH=...               # SHA-256 (hex) ของ ktisxadmin2026
 ```
 
 ### 3) Run development server
@@ -39,8 +36,10 @@ Open `http://localhost:3000` with your browser to see the result.
 
 ### Routes
 
-- `/` หน้า login (รหัสเดียว กำหนด role)
-- `/form` หน้าแบบฟอร์ม (user/admin)
+- `/` หน้า login (username/password จากตาราง `ktisx_users`)
+- `/home` เลือกแบบฟอร์มหลังล็อกอิน (ปุ่มหลัก 2 แบบ; admin มีลิงก์ข้อความไปแดชบอร์ดในแถบหัว)
+- `/form` แบบฟอร์มประเมินศักยภาพไร่อ้อย (Onsite Visit Form)
+- `/surveys/heart4rooms` แบบฟอร์มประเมินหัวใจ 4 ห้อง
 - `/admin/dashboard` หน้าดูข้อมูล (admin เท่านั้น)
 
 ### Notes

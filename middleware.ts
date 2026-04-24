@@ -12,8 +12,16 @@ export function middleware(req: NextRequest) {
   const role = getRole(req);
 
   const isForm = pathname.startsWith("/form");
+  const isHome = pathname === "/home" || pathname.startsWith("/home/");
+  const isSurveys = pathname.startsWith("/surveys");
   const isAdmin = pathname.startsWith("/admin");
   const isAdminDashboard = pathname.startsWith("/admin/dashboard");
+
+  if ((isHome || isSurveys) && !role) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/";
+    return NextResponse.redirect(url);
+  }
 
   if (isForm && !role) {
     const url = req.nextUrl.clone();
@@ -36,6 +44,6 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/form/:path*", "/admin/:path*"],
+  matcher: ["/home", "/home/:path*", "/surveys/:path*", "/form/:path*", "/admin/:path*"],
 };
 

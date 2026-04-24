@@ -13,8 +13,6 @@ export function getEnv() {
   return {
     SUPABASE_URL: required("SUPABASE_URL"),
     SUPABASE_SERVICE_ROLE_KEY: required("SUPABASE_SERVICE_ROLE_KEY"),
-    KTISX_FORM_CODE_HASH: required("KTISX_FORM_CODE_HASH"),
-    KTISX_ADMIN_CODE_HASH: required("KTISX_ADMIN_CODE_HASH"),
   };
 }
 

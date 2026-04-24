@@ -4,8 +4,8 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 type LoginResponse =
-  | { ok: true; role: "user" | "admin" }
-  | { ok: false; error: "INVALID_CODE" };
+  | { ok: true; id: string; role: "user" | "admin" }
+  | { ok: false; error: "INVALID_CREDENTIALS" | "BAD_REQUEST" | "DB_ERROR"; detail?: unknown };
 
 export function LoginForm() {
   const router = useRouter();
@@ -14,7 +14,7 @@ export function LoginForm() {
 
   const errorLabel = useMemo(() => {
     if (!error) return null;
-    if (error === "INVALID_CODE") return "รหัสไม่ถูกต้อง";
+    if (error === "INVALID_CREDENTIALS") return "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
     return "เกิดข้อผิดพลาด กรุณาลองใหม่";
   }, [error]);
 
@@ -25,12 +25,13 @@ export function LoginForm() {
 
     try {
       const fd = new FormData(e.currentTarget);
-      const code = String(fd.get("code") ?? "");
+      const username = String(fd.get("username") ?? "");
+      const password = String(fd.get("password") ?? "");
 
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ username, password }),
       });
 
       const json = (await res.json().catch(() => null)) as LoginResponse | null;
@@ -40,8 +41,7 @@ export function LoginForm() {
         return;
       }
 
-      if (json.role === "admin") router.push("/admin/dashboard");
-      else router.push("/form");
+      router.push("/home");
       router.refresh();
     } finally {
       setPending(false);
@@ -51,9 +51,18 @@ export function LoginForm() {
   return (
     <form onSubmit={onSubmit} className="mt-5 space-y-4">
       <input
+        type="text"
+        name="username"
+        placeholder="ชื่อผู้ใช้"
+        autoComplete="username"
+        required
+        disabled={pending}
+        className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-foreground shadow-sm outline-none ring-0 placeholder:text-zinc-400 focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 disabled:opacity-60"
+      />
+      <input
         type="password"
-        name="code"
-        placeholder="ใส่รหัสเพื่อเข้าใช้งาน"
+        name="password"
+        placeholder="รหัสผ่าน"
         autoComplete="current-password"
         required
         disabled={pending}
