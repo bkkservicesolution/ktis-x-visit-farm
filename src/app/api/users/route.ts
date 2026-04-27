@@ -23,6 +23,15 @@ function normalizeRole(v: unknown): "user" | "admin" | null {
   return null;
 }
 
+async function upsertPromoterFromUser(promoter_id: string | null, full_name: string) {
+  const id = typeof promoter_id === "string" ? promoter_id.trim() : "";
+  const name = typeof full_name === "string" ? full_name.trim() : "";
+  if (!id || !name) return;
+
+  const { error } = await supabaseAdmin().from("promoters").upsert({ id, full_name: name }, { onConflict: "id" });
+  if (error) throw new Error(error.message);
+}
+
 export async function GET(req: Request) {
   const role = await getRole();
   if (role !== "admin") return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
@@ -104,6 +113,15 @@ export async function POST(req: Request) {
 
   if (error || !data) {
     return NextResponse.json({ ok: false, error: "DB_ERROR", detail: error?.message ?? "insert failed" }, { status: 500 });
+  }
+
+  try {
+    await upsertPromoterFromUser(promoter_id, full_name);
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: "DB_ERROR", detail: e instanceof Error ? e.message : "promoter upsert failed" },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true, id: String((data as { id: unknown }).id) });

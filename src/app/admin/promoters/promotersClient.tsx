@@ -7,7 +7,9 @@ type PromotersResponse =
   | { ok: true; rows: Promoter[] }
   | { ok: false; error: string; detail?: unknown };
 
-type OkResponse = { ok: true } | { ok: false; error: string; detail?: unknown; message?: unknown };
+type OkResponse =
+  | { ok: true }
+  | { ok: false; error: string; detail?: unknown; message?: unknown };
 
 function normalizeId(v: string): string {
   return v.trim();
@@ -61,7 +63,7 @@ export function PromotersClient() {
     const id = normalizeId(newId);
     const full_name = newName.trim();
     if (!id || !full_name) {
-      setError("กรุณากรอก id และชื่อให้ครบ");
+      setError("กรุณากรอกรหัสนักส่งเสริมและชื่อให้ครบ");
       return;
     }
     setPending(true);
@@ -85,14 +87,14 @@ export function PromotersClient() {
     }
   }
 
-  async function onUpdate(id: string, full_name: string) {
+  async function onUpdate(oldId: string, next: { id: string; full_name: string }) {
     setPending(true);
     setError(null);
     try {
-      const res = await fetch(`/api/promoters/${encodeURIComponent(id)}`, {
+      const res = await fetch(`/api/promoters/${encodeURIComponent(oldId)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ full_name }),
+        body: JSON.stringify({ id: next.id, full_name: next.full_name }),
       });
       const json = (await res.json().catch(() => null)) as OkResponse | null;
       if (!res.ok || !json || json.ok !== true) {
@@ -130,7 +132,7 @@ export function PromotersClient() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="ค้นหา: id/ชื่อ"
+            placeholder="ค้นหา: รหัสนักส่งเสริม/ชื่อ"
             className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 sm:w-[360px]"
           />
           <button
@@ -154,7 +156,7 @@ export function PromotersClient() {
           <input
             value={newId}
             onChange={(e) => setNewId(e.target.value)}
-            placeholder="รหัส (id)"
+            placeholder="รหัสนักส่งเสริม"
             className="w-full rounded-2xl border border-border bg-card px-4 py-2.5 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
           />
           <input
@@ -171,7 +173,7 @@ export function PromotersClient() {
             {pending ? "กำลังบันทึก..." : "บันทึก"}
           </button>
         </div>
-        <div className="mt-2 text-xs text-muted">หมายเหตุ: ถ้า id ซ้ำ ระบบจะอัปเดตชื่อให้</div>
+        <div className="mt-2 text-xs text-muted">หมายเหตุ: ถ้ารหัสนักส่งเสริมซ้ำ ระบบจะอัปเดตชื่อให้</div>
       </form>
 
       <div className="overflow-hidden rounded-2xl border border-border">
@@ -181,35 +183,7 @@ export function PromotersClient() {
               <div className="px-4 py-6 text-sm text-muted">{pending ? "กำลังโหลด..." : "ไม่พบข้อมูล"}</div>
             ) : (
               filtered.map((r) => (
-                <div key={r.id} className="px-4 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-foreground">{r.id}</div>
-                      <div className="mt-1 break-words text-sm text-foreground">{r.full_name}</div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => {
-                        const next = window.prompt(`แก้ไขชื่อของ ${r.id}`, r.full_name);
-                        if (typeof next === "string" && next.trim()) void onUpdate(r.id, next.trim());
-                      }}
-                      className="rounded-2xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-60"
-                    >
-                      แก้ไข
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => void onDelete(r.id)}
-                      className="rounded-2xl bg-accent px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
-                    >
-                      ลบ
-                    </button>
-                  </div>
-                </div>
+                <PromoterMobileRow key={r.id} row={r} pending={pending} onUpdate={onUpdate} onDelete={onDelete} />
               ))
             )}
           </div>
@@ -219,7 +193,7 @@ export function PromotersClient() {
           <table className="min-w-[820px] w-full border-collapse bg-background text-left text-sm">
             <thead className="bg-foreground/[0.04]">
               <tr className="text-foreground">
-                <th className="px-4 py-3 font-semibold">รหัส</th>
+                <th className="px-4 py-3 font-semibold">รหัสนักส่งเสริม</th>
                 <th className="px-4 py-3 font-semibold">ชื่อ-นามสกุล</th>
                 <th className="px-4 py-3 font-semibold">จัดการ</th>
               </tr>
@@ -250,6 +224,113 @@ export function PromotersClient() {
   );
 }
 
+function PromoterMobileRow({
+  row,
+  pending,
+  onUpdate,
+  onDelete,
+}: {
+  row: Promoter;
+  pending: boolean;
+  onUpdate: (oldId: string, next: { id: string; full_name: string }) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [id, setId] = useState(row.id);
+  const [name, setName] = useState(row.full_name);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setId(row.id);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setName(row.full_name);
+  }, [row.full_name, row.id]);
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {editing ? (
+            <div className="space-y-2">
+              <label className="block">
+                <div className="text-[11px] font-medium text-muted">รหัสนักส่งเสริม</div>
+                <input
+                  value={id}
+                  onChange={(e) => setId(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                  disabled={pending}
+                />
+              </label>
+              <label className="block">
+                <div className="text-[11px] font-medium text-muted">ชื่อ-นามสกุล</div>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                  disabled={pending}
+                />
+              </label>
+            </div>
+          ) : (
+            <>
+              <div className="text-sm font-semibold text-foreground">{row.id}</div>
+              <div className="mt-1 break-words text-sm text-foreground">{row.full_name}</div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {editing ? (
+          <>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setEditing(false);
+                setId(row.id);
+                setName(row.full_name);
+              }}
+              className="inline-flex flex-1 items-center justify-center rounded-2xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-60"
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              disabled={pending || !id.trim() || !name.trim()}
+              onClick={() => {
+                void onUpdate(row.id, { id: id.trim(), full_name: name.trim() });
+                setEditing(false);
+              }}
+              className="inline-flex flex-1 items-center justify-center rounded-2xl bg-foreground px-3 py-2 text-xs font-semibold text-background shadow-sm transition hover:bg-foreground/90 disabled:opacity-60"
+            >
+              บันทึก
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => setEditing(true)}
+            className="inline-flex flex-1 items-center justify-center rounded-2xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-60"
+          >
+            แก้ไข
+          </button>
+        )}
+
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => void onDelete(row.id)}
+          className="inline-flex flex-1 items-center justify-center rounded-2xl bg-accent px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
+        >
+          ลบ
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PromoterRowItem({
   row,
   pending,
@@ -258,20 +339,34 @@ function PromoterRowItem({
 }: {
   row: Promoter;
   pending: boolean;
-  onUpdate: (id: string, full_name: string) => void;
+  onUpdate: (oldId: string, next: { id: string; full_name: string }) => void;
   onDelete: (id: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [id, setId] = useState(row.id);
   const [name, setName] = useState(row.full_name);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    setId(row.id);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(row.full_name);
-  }, [row.full_name]);
+  }, [row.full_name, row.id]);
 
   return (
     <tr className="border-t border-border">
-      <td className="px-4 py-3 font-semibold text-foreground">{row.id}</td>
+      <td className="px-4 py-3">
+        {editing ? (
+          <input
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+            className="w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+            disabled={pending}
+          />
+        ) : (
+          <div className="font-semibold text-foreground">{row.id}</div>
+        )}
+      </td>
       <td className="px-4 py-3">
         {editing ? (
           <input
@@ -293,6 +388,7 @@ function PromoterRowItem({
                 disabled={pending}
                 onClick={() => {
                   setEditing(false);
+                  setId(row.id);
                   setName(row.full_name);
                 }}
                 className="rounded-2xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-60"
@@ -301,9 +397,9 @@ function PromoterRowItem({
               </button>
               <button
                 type="button"
-                disabled={pending || !name.trim()}
+                disabled={pending || !id.trim() || !name.trim()}
                 onClick={() => {
-                  void onUpdate(row.id, name.trim());
+                  void onUpdate(row.id, { id: id.trim(), full_name: name.trim() });
                   setEditing(false);
                 }}
                 className="rounded-2xl bg-foreground px-3 py-2 text-xs font-semibold text-background shadow-sm transition hover:bg-foreground/90 disabled:opacity-60"

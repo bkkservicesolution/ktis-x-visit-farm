@@ -14,6 +14,15 @@ function normalizeRole(v: unknown): "user" | "admin" | null {
   return null;
 }
 
+async function upsertPromoterFromUser(promoter_id: string | null, full_name: string | null) {
+  const id = typeof promoter_id === "string" ? promoter_id.trim() : "";
+  const name = typeof full_name === "string" ? full_name.trim() : "";
+  if (!id || !name) return;
+
+  const { error } = await supabaseAdmin().from("promoters").upsert({ id, full_name: name }, { onConflict: "id" });
+  if (error) throw new Error(error.message);
+}
+
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const role = await getRole();
   if (role !== "admin") return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
@@ -56,6 +65,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const id = String((await params).id ?? "").trim();
   if (!id) return NextResponse.json({ ok: false, error: "BAD_REQUEST", message: "Missing id" }, { status: 400 });
+
+  const { data: before, error: beforeErr } = await supabaseAdmin()
+    .from("ktisx_users")
+    .select("promoter_id,full_name")
+    .eq("id", id)
+    .maybeSingle();
+  if (beforeErr) return NextResponse.json({ ok: false, error: "DB_ERROR", detail: beforeErr.message }, { status: 500 });
 
   const body = (await req.json().catch(() => null)) as null | {
     username?: unknown;
@@ -103,8 +119,30 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ ok: false, error: "BAD_REQUEST", message: "No fields to update" }, { status: 400 });
   }
 
+  const nextPromoterId =
+    Object.prototype.hasOwnProperty.call(patch, "promoter_id")
+      ? (patch.promoter_id === null || patch.promoter_id === undefined ? null : String(patch.promoter_id))
+      : before?.promoter_id === null || before?.promoter_id === undefined
+        ? null
+        : String(before.promoter_id);
+  const nextFullName =
+    Object.prototype.hasOwnProperty.call(patch, "full_name")
+      ? (patch.full_name === null || patch.full_name === undefined ? null : String(patch.full_name))
+      : before?.full_name === null || before?.full_name === undefined
+        ? null
+        : String(before.full_name);
+
   const { error } = await supabaseAdmin().from("ktisx_users").update(patch).eq("id", id);
   if (error) return NextResponse.json({ ok: false, error: "DB_ERROR", detail: error.message }, { status: 500 });
+
+  try {
+    await upsertPromoterFromUser(nextPromoterId, nextFullName);
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: "DB_ERROR", detail: e instanceof Error ? e.message : "promoter upsert failed" },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }
