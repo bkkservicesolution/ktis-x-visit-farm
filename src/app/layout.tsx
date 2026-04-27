@@ -42,7 +42,12 @@ export default function RootLayout({
       lang="th"
       className={`${kanit.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+      <body className="min-h-full font-sans bg-white">
+        <div className="relative min-h-screen">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[160px] bg-gradient-to-b from-accent/10 to-transparent" />
+          <div className="relative flex min-h-screen flex-col">{children}</div>
+        </div>
+      </body>
     </html>
   );
 }

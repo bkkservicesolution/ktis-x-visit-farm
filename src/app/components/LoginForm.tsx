@@ -58,7 +58,7 @@ export function LoginForm() {
         autoComplete="username"
         required
         disabled={pending}
-        className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-foreground shadow-sm outline-none ring-0 placeholder:text-zinc-400 focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 disabled:opacity-60"
+        className="w-full rounded-2xl border border-border bg-white px-4 py-3 text-foreground shadow-sm outline-none ring-0 placeholder:text-zinc-400 focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 disabled:opacity-60"
       />
       <input
         type="password"
@@ -67,7 +67,7 @@ export function LoginForm() {
         autoComplete="current-password"
         required
         disabled={pending}
-        className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-foreground shadow-sm outline-none ring-0 placeholder:text-zinc-400 focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 disabled:opacity-60"
+        className="w-full rounded-2xl border border-border bg-white px-4 py-3 text-foreground shadow-sm outline-none ring-0 placeholder:text-zinc-400 focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 disabled:opacity-60"
       />
 
       <button

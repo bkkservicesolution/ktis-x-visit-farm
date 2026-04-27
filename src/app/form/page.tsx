@@ -13,11 +13,7 @@ export default async function FormPage() {
   const role = await getRole();
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-12">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-accent/10 blur-3xl" />
-        <div className="absolute -bottom-64 -right-40 h-[560px] w-[560px] rounded-full bg-foreground/10 blur-3xl" />
-      </div>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-transparent px-4 py-12">
 
       {/* match home page overall scale/feel (zoomed out) */}
       <main className="relative mx-auto w-full max-w-6xl origin-center lg:translate-x-[24px]">

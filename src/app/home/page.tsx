@@ -12,13 +12,9 @@ export default async function HomeLandingPage() {
   const role = await getRole();
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-12">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-accent/10 blur-3xl" />
-        <div className="absolute -bottom-64 -right-40 h-[560px] w-[560px] rounded-full bg-foreground/10 blur-3xl" />
-      </div>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-transparent px-4 py-12">
 
-      <main className="relative mx-auto w-full max-w-6xl origin-center lg:translate-x-[24px]">
+      <main className="relative mx-auto w-full max-w-6xl origin-center lg:scale-[1.15] lg:translate-x-[24px]">
         <header className="flex flex-row items-start justify-between gap-3 sm:items-center">
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -108,12 +104,17 @@ export default async function HomeLandingPage() {
           </div>
 
           <aside className="relative flex w-full max-w-md justify-center lg:max-w-none lg:justify-end">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/brand/mascot-v2.png"
-              alt="KTISX Mascot"
-              className="h-[240px] w-auto select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.2)] sm:h-[320px] lg:h-[520px] lg:-translate-y-[20px]"
-            />
+            <video
+              className="mx-auto block h-[220px] w-auto -translate-x-[15px] translate-y-[20px] select-none bg-white object-contain lg:h-[360px] lg:translate-x-0 lg:translate-y-[10px]"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              aria-label="KTISX Mascot"
+            >
+              <source src="/mascotktisxanimate.mp4" type="video/mp4" />
+            </video>
           </aside>
         </div>
       </main>

@@ -13,7 +13,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const role = await getRole();
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-transparent">
       <div className="mx-auto flex w-full max-w-[1400px] gap-6 px-4 py-8">
         <div className="w-full lg:hidden">
           <AdminMobileNav role={role} />

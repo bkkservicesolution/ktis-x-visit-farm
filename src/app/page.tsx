@@ -2,11 +2,7 @@ import { LoginForm } from "@/app/components/LoginForm";
 
 export default function Home() {
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-12">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-accent/10 blur-3xl" />
-        <div className="absolute -bottom-64 -right-40 h-[560px] w-[560px] rounded-full bg-foreground/10 blur-3xl" />
-      </div>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-transparent px-4 py-12">
 
       {/* NOTE: scale 150% to fill screen per request */}
       <main className="relative mx-auto w-full max-w-5xl origin-center lg:scale-[1.15] lg:translate-x-[24px]">
@@ -17,7 +13,7 @@ export default function Home() {
               <img
                 src="/brand/logo.png?v=2"
                 alt="KTISX"
-                className="h-16 w-16 rounded-2xl border border-border bg-card object-cover p-1 shadow-sm"
+                className="h-16 w-16 rounded-2xl border border-border bg-white object-cover p-1 shadow-sm"
               />
               <div>
                 <div className="text-sm font-medium tracking-wide text-muted">
@@ -29,7 +25,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <div className="rounded-3xl border border-border bg-white p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-foreground">เข้าสู่ระบบด้วยรหัสผ่าน</h2>
 
               <LoginForm />
@@ -37,12 +33,17 @@ export default function Home() {
           </section>
 
           <section className="relative w-full max-w-md lg:block">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/brand/mascot-v2.png"
-              alt="KTISX Mascot"
-              className="mx-auto h-[220px] w-auto select-none object-contain drop-shadow-[0_24px_50px_rgba(0,0,0,0.25)] lg:h-[440px] lg:-translate-y-[30px]"
-            />
+            <video
+              className="mx-auto block h-[220px] w-auto -translate-x-[15px] translate-y-[20px] select-none bg-white object-contain lg:h-[360px] lg:translate-x-0 lg:translate-y-[10px]"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              aria-label="KTISX Mascot"
+            >
+              <source src="/mascotktisxanimate.mp4" type="video/mp4" />
+            </video>
           </section>
         </div>
       </main>
