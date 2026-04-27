@@ -16,6 +16,8 @@ create table if not exists public.ktisx_users (
   password text not null,
   role text not null,
 
+  full_name text,
+
   promoter_id text,
 
   constraint ktisx_users_role_chk check (role in ('user', 'admin'))

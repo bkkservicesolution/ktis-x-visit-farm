@@ -18,7 +18,7 @@ export async function GET() {
 
   const { data: userRow, error: userErr } = await supabaseAdmin()
     .from("ktisx_users")
-    .select("id,username,promoter_id")
+    .select("id,username,promoter_id,full_name")
     .eq("id", userId)
     .maybeSingle();
 
@@ -35,18 +35,8 @@ export async function GET() {
       ? null
       : String(userRow.promoter_id).trim() || null;
 
-  let promoterFullName: string | null = null;
-  if (promoterId) {
-    const { data: promo, error: promoErr } = await supabaseAdmin()
-      .from("promoters")
-      .select("full_name")
-      .eq("id", promoterId)
-      .maybeSingle();
-    if (promoErr) {
-      return NextResponse.json({ ok: false, error: "DB_ERROR", detail: promoErr.message }, { status: 500 });
-    }
-    if (promo?.full_name != null) promoterFullName = String(promo.full_name);
-  }
+  const promoterFullName =
+    userRow.full_name === null || userRow.full_name === undefined ? null : String(userRow.full_name).trim() || null;
 
   return NextResponse.json({
     ok: true,

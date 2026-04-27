@@ -66,6 +66,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               รายชื่อนักส่งเสริม
               <span className="text-xs text-muted">Promoters</span>
             </Link>
+
+            <Link
+              href="/admin/users"
+              className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
+            >
+              บัญชีผู้ใช้
+              <span className="text-xs text-muted">Users</span>
+            </Link>
           </nav>
 
           <div className="mt-auto space-y-3">

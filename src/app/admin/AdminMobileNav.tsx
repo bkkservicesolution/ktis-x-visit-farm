@@ -14,6 +14,7 @@ export function AdminMobileNav({ role }: { role: string | null }) {
       { href: "/admin/dashboard", label: "แบบประเมินศักยภาพไร่", meta: "Onsite" },
       { href: "/admin/heart4rooms", label: "แบบสอบถามหัวใจ 4 ห้อง", meta: "Surveys" },
       { href: "/admin/promoters", label: "รายชื่อนักส่งเสริม", meta: "Promoters" },
+      { href: "/admin/users", label: "บัญชีผู้ใช้", meta: "Users" },
     ],
     [],
   );
