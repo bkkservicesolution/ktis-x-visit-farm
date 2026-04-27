@@ -55,14 +55,11 @@ export async function GET(req: Request) {
   const last = (url.searchParams.get("last") ?? "").trim();
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 20), 1), 50);
 
-  const baseQuery = () =>
-    // supabase-js select typings don't accept non-identifier column names (Thai),
-    // so we intentionally bypass them and map the result ourselves.
-    ((supabaseAdmin().from("farmers") as any).select("*") as any);
+  const baseQuery = () => supabaseAdmin().from("farmers").select("*");
 
   if (step === "first") {
     if (!q || q.length < 1) return NextResponse.json({ ok: true, rows: [] });
-    let query = baseQuery().limit(250) as any;
+    let query = baseQuery().limit(250);
     query = query.ilike(COL_FIRST, `%${q}%`);
 
     const { data, error } = await query;
@@ -75,7 +72,7 @@ export async function GET(req: Request) {
 
   if (step === "last") {
     if (!first) return NextResponse.json({ ok: true, rows: [] });
-    let query = baseQuery().limit(500) as any;
+    let query = baseQuery().limit(500);
     query = query.eq(COL_FIRST, first);
     if (q) query = query.ilike(COL_LAST, `%${q}%`);
 
@@ -89,7 +86,7 @@ export async function GET(req: Request) {
 
   if (step === "contract") {
     if (!first || !last) return NextResponse.json({ ok: true, rows: [] });
-    let query = baseQuery().limit(200) as any;
+    let query = baseQuery().limit(200);
     query = query.eq(COL_FIRST, first).eq(COL_LAST, last);
     if (q) query = query.ilike(COL_CONTRACT, `%${q}%`);
 

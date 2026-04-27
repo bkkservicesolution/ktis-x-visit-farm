@@ -1,18 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Heart4SurveySteps } from "@/app/surveys/heart4rooms/heart4SurveySteps";
 
 export type H4Answers = Record<string, unknown>;
-
-type FarmerRow = {
-  contract_no: string;
-  title: string;
-  first_name: string;
-  last_name: string;
-};
 
 type FarmerOption = { value: string };
 
@@ -53,6 +46,8 @@ export function Heart4RoomsClient() {
 
   const [submitterDisplayName, setSubmitterDisplayName] = useState("");
 
+  const [farmerMode, setFarmerMode] = useState<"search" | "manual">("search");
+
   const [farmerFirst, setFarmerFirst] = useState("");
   const [farmerLast, setFarmerLast] = useState("");
   const [contractNo, setContractNo] = useState("");
@@ -73,6 +68,17 @@ export function Heart4RoomsClient() {
   const [contractOptions, setContractOptions] = useState<FarmerOption[]>([]);
 
   const [answers, setAnswers] = useState<H4Answers>({});
+
+  const firstTimerRef = useRef<number | null>(null);
+  const lastTimerRef = useRef<number | null>(null);
+  const contractTimerRef = useRef<number | null>(null);
+  const firstAbortRef = useRef<AbortController | null>(null);
+  const lastAbortRef = useRef<AbortController | null>(null);
+  const contractAbortRef = useRef<AbortController | null>(null);
+
+  const firstWrapRef = useRef<HTMLDivElement | null>(null);
+  const lastWrapRef = useRef<HTMLDivElement | null>(null);
+  const contractWrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!message) return;
@@ -125,106 +131,141 @@ export function Heart4RoomsClient() {
   }, [contractOpen]);
 
   useEffect(() => {
-    const q = firstQuery.trim();
-    if (!q) {
-      setFirstLoading(false);
-      setFirstOptions([]);
-      return;
+    if (!firstOpen && !lastOpen && !contractOpen) return;
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node | null;
+      if (!t) return;
+
+      const inFirst = !!firstWrapRef.current?.contains(t);
+      const inLast = !!lastWrapRef.current?.contains(t);
+      const inContract = !!contractWrapRef.current?.contains(t);
+      if (inFirst || inLast || inContract) return;
+
+      setFirstOpen(false);
+      setLastOpen(false);
+      setContractOpen(false);
     }
-    let alive = true;
+
+    window.addEventListener("pointerdown", onPointerDown, { capture: true });
+    return () => window.removeEventListener("pointerdown", onPointerDown, { capture: true } as AddEventListenerOptions);
+  }, [contractOpen, firstOpen, lastOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (firstTimerRef.current) window.clearTimeout(firstTimerRef.current);
+      if (lastTimerRef.current) window.clearTimeout(lastTimerRef.current);
+      if (contractTimerRef.current) window.clearTimeout(contractTimerRef.current);
+      firstAbortRef.current?.abort();
+      lastAbortRef.current?.abort();
+      contractAbortRef.current?.abort();
+    };
+  }, []);
+
+  const scheduleFirstSearch = useCallback((qRaw: string) => {
+    const q = qRaw.trim();
+    if (firstTimerRef.current) window.clearTimeout(firstTimerRef.current);
+    firstAbortRef.current?.abort();
+    if (!q) return;
+
     setFirstLoading(true);
-    const t = window.setTimeout(async () => {
+    firstTimerRef.current = window.setTimeout(async () => {
+      const ac = new AbortController();
+      firstAbortRef.current = ac;
       try {
-        const res = await fetch(`/api/farmers?step=first&q=${encodeURIComponent(q)}&limit=20`, { method: "GET" });
+        const res = await fetch(`/api/farmers?step=first&q=${encodeURIComponent(q)}&limit=20`, {
+          method: "GET",
+          signal: ac.signal,
+        });
         const json = (await res.json().catch(() => null)) as
           | { ok: true; rows: FarmerOption[] }
           | { ok: false; error: string; detail?: string }
           | null;
-        if (!alive) return;
         if (!res.ok || !json || json.ok !== true) {
           setFirstOptions([]);
           return;
         }
         setFirstOptions(Array.isArray(json.rows) ? json.rows : []);
+      } catch (err) {
+        if (err && typeof err === "object" && "name" in err && (err as { name?: unknown }).name === "AbortError") {
+          return; // expected: user typed again / mode switched
+        }
+        setFirstOptions([]);
       } finally {
-        if (alive) setFirstLoading(false);
+        setFirstLoading(false);
       }
     }, 180);
-    return () => {
-      alive = false;
-      window.clearTimeout(t);
-    };
-  }, [firstQuery]);
+  }, []);
 
-  useEffect(() => {
-    const q = lastQuery.trim();
-    if (!farmerFirst) {
-      setLastLoading(false);
-      setLastOptions([]);
-      return;
-    }
-    let alive = true;
+  const scheduleLastSearch = useCallback((qRaw: string, first: string) => {
+    const q = qRaw.trim();
+    if (lastTimerRef.current) window.clearTimeout(lastTimerRef.current);
+    lastAbortRef.current?.abort();
+    if (!first.trim()) return;
+
     setLastLoading(true);
-    const t = window.setTimeout(async () => {
+    lastTimerRef.current = window.setTimeout(async () => {
+      const ac = new AbortController();
+      lastAbortRef.current = ac;
       try {
         const res = await fetch(
-          `/api/farmers?step=last&first=${encodeURIComponent(farmerFirst)}&q=${encodeURIComponent(q)}&limit=20`,
-          { method: "GET" },
+          `/api/farmers?step=last&first=${encodeURIComponent(first)}&q=${encodeURIComponent(q)}&limit=20`,
+          { method: "GET", signal: ac.signal },
         );
         const json = (await res.json().catch(() => null)) as
           | { ok: true; rows: FarmerOption[] }
           | { ok: false; error: string; detail?: string }
           | null;
-        if (!alive) return;
         if (!res.ok || !json || json.ok !== true) {
           setLastOptions([]);
           return;
         }
         setLastOptions(Array.isArray(json.rows) ? json.rows : []);
+      } catch (err) {
+        if (err && typeof err === "object" && "name" in err && (err as { name?: unknown }).name === "AbortError") {
+          return;
+        }
+        setLastOptions([]);
       } finally {
-        if (alive) setLastLoading(false);
+        setLastLoading(false);
       }
     }, 180);
-    return () => {
-      alive = false;
-      window.clearTimeout(t);
-    };
-  }, [farmerFirst, lastQuery]);
+  }, []);
 
-  useEffect(() => {
-    const q = contractQuery.trim();
-    if (!farmerFirst || !farmerLast) {
-      setContractLoading(false);
-      setContractOptions([]);
-      return;
-    }
-    let alive = true;
+  const scheduleContractSearch = useCallback((qRaw: string, first: string, last: string) => {
+    const q = qRaw.trim();
+    if (contractTimerRef.current) window.clearTimeout(contractTimerRef.current);
+    contractAbortRef.current?.abort();
+    if (!first.trim() || !last.trim()) return;
+
     setContractLoading(true);
-    const t = window.setTimeout(async () => {
+    contractTimerRef.current = window.setTimeout(async () => {
+      const ac = new AbortController();
+      contractAbortRef.current = ac;
       try {
         const res = await fetch(
-          `/api/farmers?step=contract&first=${encodeURIComponent(farmerFirst)}&last=${encodeURIComponent(farmerLast)}&q=${encodeURIComponent(q)}&limit=20`,
-          { method: "GET" },
+          `/api/farmers?step=contract&first=${encodeURIComponent(first)}&last=${encodeURIComponent(last)}&q=${encodeURIComponent(q)}&limit=20`,
+          { method: "GET", signal: ac.signal },
         );
         const json = (await res.json().catch(() => null)) as
           | { ok: true; rows: FarmerOption[] }
           | { ok: false; error: string; detail?: string }
           | null;
-        if (!alive) return;
         if (!res.ok || !json || json.ok !== true) {
           setContractOptions([]);
           return;
         }
         setContractOptions(Array.isArray(json.rows) ? json.rows : []);
+      } catch (err) {
+        if (err && typeof err === "object" && "name" in err && (err as { name?: unknown }).name === "AbortError") {
+          return;
+        }
+        setContractOptions([]);
       } finally {
-        if (alive) setContractLoading(false);
+        setContractLoading(false);
       }
     }, 180);
-    return () => {
-      alive = false;
-      window.clearTimeout(t);
-    };
-  }, [contractQuery, farmerFirst, farmerLast]);
+  }, []);
 
   const setField = useCallback((key: string, value: unknown) => {
     setAnswers((a) => ({ ...a, [key]: value }));
@@ -248,6 +289,53 @@ export function Heart4RoomsClient() {
       else cur.push(code);
       return { ...a, [key]: cur };
     });
+  }, []);
+
+  const switchToFarmerManual = useCallback(() => {
+    setFarmerMode("manual");
+    setFirstOpen(false);
+    setLastOpen(false);
+    setContractOpen(false);
+    setFarmerFirst("");
+    setFarmerLast("");
+    setContractNo("");
+    setFirstQuery("");
+    setLastQuery("");
+    setContractQuery("");
+    setFirstOptions([]);
+    setLastOptions([]);
+    setContractOptions([]);
+    setFirstLoading(false);
+    setLastLoading(false);
+    setContractLoading(false);
+    firstAbortRef.current?.abort();
+    lastAbortRef.current?.abort();
+    contractAbortRef.current?.abort();
+    if (firstTimerRef.current) window.clearTimeout(firstTimerRef.current);
+    if (lastTimerRef.current) window.clearTimeout(lastTimerRef.current);
+    if (contractTimerRef.current) window.clearTimeout(contractTimerRef.current);
+  }, []);
+
+  const switchToFarmerSearch = useCallback(() => {
+    setFarmerMode("search");
+    setFarmerFirst("");
+    setFarmerLast("");
+    setContractNo("");
+    setFirstQuery("");
+    setLastQuery("");
+    setContractQuery("");
+    setFirstOptions([]);
+    setLastOptions([]);
+    setContractOptions([]);
+    setFirstLoading(false);
+    setLastLoading(false);
+    setContractLoading(false);
+    firstAbortRef.current?.abort();
+    lastAbortRef.current?.abort();
+    contractAbortRef.current?.abort();
+    if (firstTimerRef.current) window.clearTimeout(firstTimerRef.current);
+    if (lastTimerRef.current) window.clearTimeout(lastTimerRef.current);
+    if (contractTimerRef.current) window.clearTimeout(contractTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -724,154 +812,259 @@ export function Heart4RoomsClient() {
 
           <section className="rounded-2xl border border-border bg-background p-4">
             <h2 className="text-sm font-semibold text-foreground">ชาวไร่</h2>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {farmerMode === "search" ? (
+                <button
+                  type="button"
+                  onClick={switchToFarmerManual}
+                  className="rounded-2xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
+                >
+                  ไม่มีรายชื่อ / กรอกข้อมูลเอง
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={switchToFarmerSearch}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    aria-hidden="true"
+                    className="shrink-0 opacity-80"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    {/* U-turn left */}
+                    <path d="M9 14l-4-4 4-4" />
+                    <path d="M5 10h9a5 5 0 0 1 5 5v5" />
+                  </svg>
+                  กลับไปค้นหาในระบบ
+                </button>
+              )}
+            </div>
             <div className="mt-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="relative">
-                  <label className="text-xs font-medium text-muted">ชื่อ (พิมพ์ค้นหา)</label>
-                  <input
-                    value={firstQuery}
-                    onChange={(e) => {
-                      setFirstQuery(e.target.value);
-                      setFirstOpen(true);
-                    }}
-                    onFocus={() => setFirstOpen(true)}
-                    className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-3 pr-10 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
-                    placeholder="พิมพ์ชื่อ"
-                  />
-                  <div className="pointer-events-none absolute right-3 top-[34px] text-xs text-muted">
-                    {firstLoading ? "…" : ""}
+              {farmerMode === "manual" ? (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="text-xs font-medium text-muted">ชื่อ</label>
+                    <input
+                      value={farmerFirst}
+                      onChange={(e) => setFarmerFirst(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                      placeholder="กรอกชื่อ"
+                    />
                   </div>
-                  {firstOpen ? (
-                    <div
-                      className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-border bg-background shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
-                      onPointerDown={(e) => e.preventDefault()}
-                    >
-                      {firstOptions.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-muted">
-                          {firstQuery.trim() ? "ไม่พบข้อมูล" : "พิมพ์เพื่อค้นหา"}
-                        </div>
-                      ) : (
-                        <div className="max-h-72 overflow-auto">
-                          {firstOptions.map((o) => (
-                            <button
-                              key={o.value}
-                              type="button"
-                              className="w-full px-4 py-3 text-left text-sm text-foreground hover:bg-foreground/5 focus:bg-foreground/5 focus:outline-none"
-                              onClick={() => {
-                                setFarmerFirst(o.value);
-                                setFarmerLast("");
-                                setContractNo("");
-                                setLastQuery("");
-                                setContractQuery("");
-                                setFirstQuery(o.value);
-                                setFirstOpen(false);
-                              }}
-                            >
-                              {o.value}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
+                  <div>
+                    <label className="text-xs font-medium text-muted">นามสกุล</label>
+                    <input
+                      value={farmerLast}
+                      onChange={(e) => setFarmerLast(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                      placeholder="กรอกนามสกุล"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted">เลขที่สัญญา</label>
+                    <input
+                      value={contractNo}
+                      onChange={(e) => setContractNo(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                      placeholder="กรอกเลขสัญญา"
+                    />
+                  </div>
                 </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="relative" ref={firstWrapRef}>
+                    <label className="text-xs font-medium text-muted">ชื่อ (พิมพ์ค้นหา)</label>
+                    <input
+                      value={firstQuery}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setFirstQuery(next);
+                        if (!next.trim()) {
+                          setFirstOptions([]);
+                          setFirstLoading(false);
+                          firstAbortRef.current?.abort();
+                          if (firstTimerRef.current) window.clearTimeout(firstTimerRef.current);
+                        }
+                        setFirstOpen(true);
+                        setLastOpen(false);
+                        setContractOpen(false);
+                        scheduleFirstSearch(next);
+                      }}
+                      onFocus={() => {
+                        setFirstOpen(true);
+                        setLastOpen(false);
+                        setContractOpen(false);
+                      }}
+                      className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-3 pr-10 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                      placeholder="พิมพ์ชื่อ"
+                    />
+                    <div className="pointer-events-none absolute right-3 top-[34px] text-xs text-muted">
+                      {firstLoading ? "…" : ""}
+                    </div>
+                    {firstOpen ? (
+                      <div
+                        className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-border bg-background shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
+                        onPointerDown={(e) => e.preventDefault()}
+                      >
+                        {firstOptions.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-muted">
+                            <div>{firstQuery.trim() ? "ไม่พบข้อมูล" : "พิมพ์เพื่อค้นหา"}</div>
+                          </div>
+                        ) : (
+                          <div className="max-h-72 overflow-auto">
+                            {firstOptions.map((o) => (
+                              <button
+                                key={o.value}
+                                type="button"
+                                className="w-full px-4 py-3 text-left text-sm text-foreground hover:bg-foreground/5 focus:bg-foreground/5 focus:outline-none"
+                                onClick={() => {
+                                  setFarmerFirst(o.value);
+                                  setFarmerLast("");
+                                  setContractNo("");
+                                  setLastQuery("");
+                                  setContractQuery("");
+                                  setLastOptions([]);
+                                  setContractOptions([]);
+                                  setLastLoading(false);
+                                  setContractLoading(false);
+                                  setFirstQuery(o.value);
+                                  setFirstOpen(false);
+                                }}
+                              >
+                                {o.value}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
 
-                <div className="relative">
-                  <label className="text-xs font-medium text-muted">นามสกุล (หลังเลือกชื่อ)</label>
-                  <input
-                    value={lastQuery}
-                    disabled={!farmerFirst}
-                    onChange={(e) => {
-                      setLastQuery(e.target.value);
-                      setLastOpen(true);
-                    }}
-                    onFocus={() => {
-                      if (farmerFirst) setLastOpen(true);
-                    }}
-                    className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-3 pr-10 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:opacity-50"
-                    placeholder={farmerFirst ? "พิมพ์นามสกุล" : "เลือกชื่อก่อน"}
-                  />
-                  <div className="pointer-events-none absolute right-3 top-[34px] text-xs text-muted">
-                    {lastLoading ? "…" : ""}
-                  </div>
-                  {lastOpen && farmerFirst ? (
-                    <div
-                      className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-border bg-background shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
-                      onPointerDown={(e) => e.preventDefault()}
-                    >
-                      {lastOptions.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-muted">{lastQuery.trim() ? "ไม่พบข้อมูล" : "พิมพ์เพื่อค้นหา"}</div>
-                      ) : (
-                        <div className="max-h-72 overflow-auto">
-                          {lastOptions.map((o) => (
-                            <button
-                              key={o.value}
-                              type="button"
-                              className="w-full px-4 py-3 text-left text-sm text-foreground hover:bg-foreground/5 focus:bg-foreground/5 focus:outline-none"
-                              onClick={() => {
-                                setFarmerLast(o.value);
-                                setContractNo("");
-                                setContractQuery("");
-                                setLastQuery(o.value);
-                                setLastOpen(false);
-                              }}
-                            >
-                              {o.value}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                  <div className="relative" ref={lastWrapRef}>
+                    <label className="text-xs font-medium text-muted">นามสกุล (หลังเลือกชื่อ)</label>
+                    <input
+                      value={lastQuery}
+                      disabled={!farmerFirst}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setLastQuery(next);
+                        setLastOpen(true);
+                        setFirstOpen(false);
+                        setContractOpen(false);
+                        scheduleLastSearch(next, farmerFirst);
+                      }}
+                      onFocus={() => {
+                        if (farmerFirst) {
+                          setLastOpen(true);
+                          setFirstOpen(false);
+                          setContractOpen(false);
+                          scheduleLastSearch(lastQuery, farmerFirst);
+                        }
+                      }}
+                      className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-3 pr-10 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:opacity-50"
+                      placeholder={farmerFirst ? "พิมพ์นามสกุล" : "เลือกชื่อก่อน"}
+                    />
+                    <div className="pointer-events-none absolute right-3 top-[34px] text-xs text-muted">
+                      {lastLoading ? "…" : ""}
                     </div>
-                  ) : null}
-                </div>
+                    {lastOpen && farmerFirst ? (
+                      <div
+                        className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-border bg-background shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
+                        onPointerDown={(e) => e.preventDefault()}
+                      >
+                        {lastOptions.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-muted">{lastLoading ? "กำลังโหลด…" : "ไม่พบข้อมูล"}</div>
+                        ) : (
+                          <div className="max-h-72 overflow-auto">
+                            {lastOptions.map((o) => (
+                              <button
+                                key={o.value}
+                                type="button"
+                                className="w-full px-4 py-3 text-left text-sm text-foreground hover:bg-foreground/5 focus:bg-foreground/5 focus:outline-none"
+                                onClick={() => {
+                                  setFarmerLast(o.value);
+                                  setContractNo("");
+                                  setContractQuery("");
+                                  setContractOptions([]);
+                                  setContractLoading(false);
+                                  setLastQuery(o.value);
+                                  setLastOpen(false);
+                                }}
+                              >
+                                {o.value}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
 
-                <div className="relative">
-                  <label className="text-xs font-medium text-muted">เลขที่สัญญา (หลังเลือกนามสกุล)</label>
-                  <input
-                    value={contractQuery}
-                    disabled={!farmerFirst || !farmerLast}
-                    onChange={(e) => {
-                      setContractQuery(e.target.value);
-                      setContractOpen(true);
-                    }}
-                    onFocus={() => {
-                      if (farmerFirst && farmerLast) setContractOpen(true);
-                    }}
-                    className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-3 pr-10 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:opacity-50"
-                    placeholder={farmerFirst && farmerLast ? "พิมพ์เลขสัญญา" : "เลือกนามสกุลก่อน"}
-                  />
-                  <div className="pointer-events-none absolute right-3 top-[34px] text-xs text-muted">
-                    {contractLoading ? "…" : ""}
-                  </div>
-                  {contractOpen && farmerFirst && farmerLast ? (
-                    <div
-                      className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-border bg-background shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
-                      onPointerDown={(e) => e.preventDefault()}
-                    >
-                      {contractOptions.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-muted">{contractQuery.trim() ? "ไม่พบข้อมูล" : "พิมพ์เพื่อค้นหา"}</div>
-                      ) : (
-                        <div className="max-h-72 overflow-auto">
-                          {contractOptions.map((o) => (
-                            <button
-                              key={o.value}
-                              type="button"
-                              className="w-full px-4 py-3 text-left text-sm text-foreground hover:bg-foreground/5 focus:bg-foreground/5 focus:outline-none"
-                              onClick={() => {
-                                setContractNo(o.value);
-                                setContractQuery(o.value);
-                                setContractOpen(false);
-                              }}
-                            >
-                              {o.value}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                  <div className="relative" ref={contractWrapRef}>
+                    <label className="text-xs font-medium text-muted">เลขที่สัญญา (หลังเลือกนามสกุล)</label>
+                    <input
+                      value={contractQuery}
+                      disabled={!farmerFirst || !farmerLast}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setContractQuery(next);
+                        setContractOpen(true);
+                        setFirstOpen(false);
+                        setLastOpen(false);
+                        scheduleContractSearch(next, farmerFirst, farmerLast);
+                      }}
+                      onFocus={() => {
+                        if (farmerFirst && farmerLast) {
+                          setContractOpen(true);
+                          setFirstOpen(false);
+                          setLastOpen(false);
+                          scheduleContractSearch(contractQuery, farmerFirst, farmerLast);
+                        }
+                      }}
+                      className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-3 pr-10 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:opacity-50"
+                      placeholder={farmerFirst && farmerLast ? "พิมพ์เลขสัญญา" : "เลือกนามสกุลก่อน"}
+                    />
+                    <div className="pointer-events-none absolute right-3 top-[34px] text-xs text-muted">
+                      {contractLoading ? "…" : ""}
                     </div>
-                  ) : null}
+                    {contractOpen && farmerFirst && farmerLast ? (
+                      <div
+                        className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-border bg-background shadow-[0_24px_60px_rgba(0,0,0,0.18)]"
+                        onPointerDown={(e) => e.preventDefault()}
+                      >
+                        {contractOptions.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-muted">{contractLoading ? "กำลังโหลด…" : "ไม่พบข้อมูล"}</div>
+                        ) : (
+                          <div className="max-h-72 overflow-auto">
+                            {contractOptions.map((o) => (
+                              <button
+                                key={o.value}
+                                type="button"
+                                className="w-full px-4 py-3 text-left text-sm text-foreground hover:bg-foreground/5 focus:bg-foreground/5 focus:outline-none"
+                                onClick={() => {
+                                  setContractNo(o.value);
+                                  setContractQuery(o.value);
+                                  setContractOpen(false);
+                                }}
+                              >
+                                {o.value}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </section>
 

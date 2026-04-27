@@ -193,27 +193,36 @@ export function Heart4RoomsAdminClient() {
   }
 
   useEffect(() => {
-    void load(0);
+    const t = window.setTimeout(() => {
+      void load(0);
+    }, 0);
+    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!selectedId) return;
-    void loadDetail(selectedId);
+    const t = window.setTimeout(() => {
+      void loadDetail(selectedId);
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [selectedId]);
 
   useEffect(() => {
     if (!detail || !selectedId) return;
-    setSaveError(null);
-    setEditSubmitter(detail.submitter_display_name ?? "");
-    setEditFarmerFirst(detail.farmer_first_name ?? "");
-    setEditFarmerLast(detail.farmer_last_name ?? "");
-    setEditContractNo(detail.contract_no ?? "");
-    setEditAnswers(
-      detail.answers && typeof detail.answers === "object" && !Array.isArray(detail.answers)
-        ? (detail.answers as Heart4SurveyStepsProps["answers"])
-        : {},
-    );
+    const t = window.setTimeout(() => {
+      setSaveError(null);
+      setEditSubmitter(detail.submitter_display_name ?? "");
+      setEditFarmerFirst(detail.farmer_first_name ?? "");
+      setEditFarmerLast(detail.farmer_last_name ?? "");
+      setEditContractNo(detail.contract_no ?? "");
+      setEditAnswers(
+        detail.answers && typeof detail.answers === "object" && !Array.isArray(detail.answers)
+          ? (detail.answers as Heart4SurveyStepsProps["answers"])
+          : {},
+      );
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [detail, selectedId]);
 
   function setField(key: string, value: unknown) {
