@@ -6,7 +6,6 @@ import { Heart4SurveySteps, type Heart4SurveyStepsProps } from "@/app/surveys/he
 
 type Row = {
   id: string;
-  created_at: string;
   created_by_username: string | null;
   promoter_id: string | null;
   submitter_display_name: string;
@@ -20,7 +19,9 @@ type ListResponse =
   | { ok: false; error: string; detail?: unknown };
 
 type DetailRow = Row & {
+  created_at: string;
   created_by_user_id: string;
+  submitter_display_name: string;
   submitter_manual: boolean;
   answers: unknown;
   attachments: unknown;
@@ -339,7 +340,7 @@ export function Heart4RoomsAdminClient() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="ชื่อ/นามสกุล/สัญญา/ผู้กรอก"
+              placeholder="ชื่อ/นามสกุล/สัญญา"
               className="mt-1 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
             />
           </div>
@@ -440,9 +441,8 @@ export function Heart4RoomsAdminClient() {
       {error ? <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-accent">{error}</div> : null}
 
       <div className="overflow-hidden rounded-3xl border border-border bg-background">
-        <div className="grid grid-cols-13 gap-3 border-b border-border bg-card px-4 py-3 text-xs font-semibold text-muted">
+        <div className="hidden grid-cols-10 gap-3 border-b border-border bg-card px-4 py-3 text-xs font-semibold text-muted sm:grid">
           <div className="col-span-1">เลือก</div>
-          <div className="col-span-3">เวลา</div>
           <div className="col-span-3">ชาวไร่</div>
           <div className="col-span-2">สัญญา</div>
           <div className="col-span-2">ผู้กรอก</div>
@@ -452,50 +452,108 @@ export function Heart4RoomsAdminClient() {
           {rows.map((r) => (
             <div
               key={r.id}
-              className="grid grid-cols-13 gap-3 px-4 py-3 text-left text-sm text-foreground transition hover:bg-foreground/5"
+              className="text-left text-sm text-foreground transition hover:bg-foreground/5"
             >
-              <div className="col-span-1 flex items-center">
-                <input
-                  type="checkbox"
-                  checked={!!selectedIds[r.id]}
-                  onChange={(e) => setSelectedIds((cur) => ({ ...cur, [r.id]: e.target.checked }))}
-                />
+              <div className="px-4 py-4 sm:hidden">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={!!selectedIds[r.id]}
+                        onChange={(e) => setSelectedIds((cur) => ({ ...cur, [r.id]: e.target.checked }))}
+                        className="mt-1"
+                      />
+                      <div className="min-w-0">
+                        <div className="break-words text-sm font-semibold text-foreground">
+                          {r.farmer_first_name} {r.farmer_last_name}
+                        </div>
+                        <div className="mt-1 text-xs text-muted">สัญญา {r.contract_no}</div>
+                        <div className="mt-1 text-xs text-muted">ผู้กรอก {r.submitter_display_name || "-"}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDialogMode("view");
+                      setSelectedId(r.id);
+                    }}
+                    className="inline-flex min-w-[96px] flex-1 items-center justify-center rounded-2xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
+                  >
+                    ดู
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDialogMode("edit");
+                      setSelectedId(r.id);
+                    }}
+                    className="inline-flex min-w-[96px] flex-1 items-center justify-center rounded-2xl bg-foreground px-3 py-2 text-xs font-semibold text-background shadow-sm transition hover:bg-foreground/90"
+                  >
+                    แก้ไข
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletePending}
+                    onClick={() => void onDelete(r.id)}
+                    className="inline-flex min-w-[96px] flex-1 items-center justify-center rounded-2xl bg-accent px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
+                  >
+                    ลบ
+                  </button>
+                </div>
               </div>
-              <div className="col-span-3 text-xs text-muted">{formatDate(r.created_at)}</div>
-              <div className="col-span-3 font-semibold">
+
+              <div className="hidden px-4 py-3 sm:grid sm:grid-cols-10 sm:gap-3">
+                <div className="col-span-1 flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedIds[r.id]}
+                    onChange={(e) => setSelectedIds((cur) => ({ ...cur, [r.id]: e.target.checked }))}
+                  />
+                </div>
+
+                <div className="col-span-3 font-semibold">
                 {r.farmer_first_name} {r.farmer_last_name}
-              </div>
-              <div className="col-span-2">{r.contract_no}</div>
-              <div className="col-span-2 truncate text-xs text-muted">{r.submitter_display_name}</div>
-              <div className="col-span-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDialogMode("view");
-                    setSelectedId(r.id);
-                  }}
-                  className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-foreground/5"
-                >
-                  ดู
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDialogMode("edit");
-                    setSelectedId(r.id);
-                  }}
-                  className="rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90"
-                >
-                  แก้ไข
-                </button>
-                <button
-                  type="button"
-                  disabled={deletePending}
-                  onClick={() => void onDelete(r.id)}
-                  className="rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
-                >
-                  ลบ
-                </button>
+                </div>
+
+                <div className="col-span-2">{r.contract_no}</div>
+
+                <div className="col-span-2 truncate text-xs text-muted">{r.submitter_display_name}</div>
+
+                <div className="col-span-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDialogMode("view");
+                      setSelectedId(r.id);
+                    }}
+                    className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-foreground/5"
+                  >
+                    ดู
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDialogMode("edit");
+                      setSelectedId(r.id);
+                    }}
+                    className="rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90"
+                  >
+                    แก้ไข
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletePending}
+                    onClick={() => void onDelete(r.id)}
+                    className="rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+                  >
+                    ลบ
+                  </button>
+                </div>
               </div>
             </div>
           ))}

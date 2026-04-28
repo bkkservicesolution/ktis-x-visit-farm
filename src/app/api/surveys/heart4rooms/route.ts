@@ -137,7 +137,7 @@ export async function GET(req: Request) {
   let query = supabaseAdmin()
     .from("heart4rooms_surveys")
     .select(
-      "id,created_at,created_by_username,promoter_id,submitter_display_name,farmer_first_name,farmer_last_name,contract_no",
+      "id,created_by_username,promoter_id,submitter_display_name,farmer_first_name,farmer_last_name,contract_no",
       { count: "exact" },
     )
     .order("created_at", { ascending: false })
