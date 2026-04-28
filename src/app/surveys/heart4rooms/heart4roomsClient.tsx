@@ -69,6 +69,16 @@ export function Heart4RoomsClient() {
 
   const [answers, setAnswers] = useState<H4Answers>({});
 
+  const farmerRole = useMemo(() => {
+    const v = answers.farmer_role;
+    return typeof v === "string" ? v.trim() : "";
+  }, [answers.farmer_role]);
+
+  const farmerOtherText = useMemo(() => {
+    const v = answers.farmer_role_other;
+    return typeof v === "string" ? v : "";
+  }, [answers.farmer_role_other]);
+
   const firstTimerRef = useRef<number | null>(null);
   const lastTimerRef = useRef<number | null>(null);
   const contractTimerRef = useRef<number | null>(null);
@@ -367,6 +377,7 @@ export function Heart4RoomsClient() {
       const missing: string[] = [];
       const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
       const nonEmpty = (v: unknown) => s(v).length > 0;
+      const hasNumber = (v: unknown) => typeof v === "number" && Number.isFinite(v);
       const obj = (k: string) => {
         const v = answers[k];
         return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -378,6 +389,10 @@ export function Heart4RoomsClient() {
         if (!nonEmpty(farmerFirst)) missing.push("ชาวไร่: ชื่อ");
         if (!nonEmpty(farmerLast)) missing.push("ชาวไร่: นามสกุล");
         if (!nonEmpty(contractNo)) missing.push("ชาวไร่: เลขที่สัญญา");
+        const role = s(answers.farmer_role);
+        const otherText = typeof answers.farmer_role_other === "string" ? answers.farmer_role_other : "";
+        if (!role) missing.push("ชาวไร่: มีสถานะเป็น");
+        if (role === "other" && !nonEmpty(otherText)) missing.push("ชาวไร่: โปรดระบุสถานะอื่น");
         return missing;
       }
 
@@ -664,6 +679,10 @@ export function Heart4RoomsClient() {
         if (!c38) missing.push("ข้อ 38: เลือกคำตอบ");
         if (c38 === "a" && !nonEmpty(q38.detail)) missing.push("ข้อ 38 (a): โปรดระบุ");
 
+        const checkin = obj("checkin");
+        if (!nonEmpty(checkin.photo_url)) missing.push("ถ่ายรูปเช็คอินหน้างาน");
+        if (!hasNumber(checkin.lat) || !hasNumber(checkin.lng)) missing.push("ถ่ายรูปเช็คอินหน้างาน: ต้องอนุญาต GPS");
+
         return missing;
       }
 
@@ -678,6 +697,8 @@ export function Heart4RoomsClient() {
     try {
       const promoterId =
         me && me.ok === true ? (me.promoter_id && me.promoter_id.trim() ? me.promoter_id.trim() : null) : null;
+      const checkin = answers.checkin && typeof answers.checkin === "object" && !Array.isArray(answers.checkin) ? (answers.checkin as Record<string, unknown>) : {};
+      const checkinUrl = typeof checkin.photo_url === "string" ? (checkin.photo_url as string) : null;
       const res = await fetch("/api/surveys/heart4rooms", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -689,7 +710,7 @@ export function Heart4RoomsClient() {
           farmer_last_name: farmerLast.trim(),
           contract_no: contractNo.trim(),
           answers,
-          attachments: {},
+          attachments: { checkin_photo: checkinUrl },
         }),
       });
       const json = (await res.json().catch(() => null)) as { ok?: boolean; id?: string; error?: string } | null;
@@ -1065,6 +1086,62 @@ export function Heart4RoomsClient() {
                   </div>
                 </div>
               )}
+            </div>
+
+            <div className="mt-5">
+              <div className="text-xs font-medium text-muted">มีสถานะเป็น</div>
+              <div className="mt-2 space-y-2">
+                <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                  <input
+                    type="radio"
+                    name="farmer_role"
+                    checked={farmerRole === "owner"}
+                    onChange={() => {
+                      setField("farmer_role", "owner");
+                      setField("farmer_role_other", "");
+                    }}
+                    className="mt-1"
+                  />
+                  <span>เจ้าของไร่</span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                  <input
+                    type="radio"
+                    name="farmer_role"
+                    checked={farmerRole === "worker"}
+                    onChange={() => {
+                      setField("farmer_role", "worker");
+                      setField("farmer_role_other", "");
+                    }}
+                    className="mt-1"
+                  />
+                  <span>ลูกไร่</span>
+                </label>
+                <div className="space-y-2">
+                  <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                    <input
+                      type="radio"
+                      name="farmer_role"
+                      checked={farmerRole === "other"}
+                      onChange={() => {
+                        setField("farmer_role", "other");
+                      }}
+                      className="mt-1"
+                    />
+                    <span>อื่นๆ</span>
+                  </label>
+                  {farmerRole === "other" ? (
+                    <input
+                      value={farmerOtherText}
+                      onChange={(e) => {
+                        setField("farmer_role_other", e.target.value);
+                      }}
+                      className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                      placeholder="โปรดระบุสถานะอื่น"
+                    />
+                  ) : null}
+                </div>
+              </div>
             </div>
           </section>
 

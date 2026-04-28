@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { H4Answers } from "@/app/surveys/heart4rooms/heart4roomsClient";
 
 export type Heart4SurveyStepsProps = {
@@ -1560,6 +1561,193 @@ function Step9({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
   const v37 = qObj(answers, "q37");
   const v38 = qObj(answers, "q38");
 
+  type UploadResponse =
+    | { ok: true; bucket: string; files: { path: string; publicUrl: string }[] }
+    | { ok: false; error: string; message?: string; detail?: string };
+
+  const checkin = qObj(answers, "checkin");
+  const checkinUrl = typeof checkin.photo_url === "string" ? (checkin.photo_url as string) : "";
+  const checkinTakenAt = typeof checkin.taken_at === "string" ? (checkin.taken_at as string) : "";
+
+  const [camOpen, setCamOpen] = useState(false);
+  const [camErr, setCamErr] = useState<string | null>(null);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const stopCamera = useCallback(() => {
+    const s = streamRef.current;
+    streamRef.current = null;
+    if (s) for (const t of s.getTracks()) t.stop();
+  }, []);
+
+  useEffect(() => {
+    if (!camOpen) return;
+    let alive = true;
+    async function start() {
+      setCamErr(null);
+      setUploadErr(null);
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setCamErr("อุปกรณ์นี้ไม่รองรับการเปิดกล้อง");
+          return;
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+        if (!alive) {
+          for (const t of stream.getTracks()) t.stop();
+          return;
+        }
+        streamRef.current = stream;
+        const v = videoRef.current;
+        if (v) {
+          v.srcObject = stream;
+          await v.play().catch(() => null);
+        }
+      } catch (e) {
+        const msg =
+          e && typeof e === "object" && "name" in e && (e as { name?: unknown }).name === "NotAllowedError"
+            ? "ไม่ได้รับอนุญาตให้ใช้กล้อง"
+            : "เปิดกล้องไม่สำเร็จ";
+        setCamErr(msg);
+      }
+    }
+    void start();
+    return () => {
+      alive = false;
+      stopCamera();
+    };
+  }, [camOpen, stopCamera]);
+
+  const getLocation = useCallback(async () => {
+    if (!navigator.geolocation) return null;
+    return await new Promise<GeolocationPosition | null>((resolve) => {
+      let done = false;
+      const timer = window.setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve(null);
+      }, 8000);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (done) return;
+          done = true;
+          window.clearTimeout(timer);
+          resolve(pos);
+        },
+        () => {
+          if (done) return;
+          done = true;
+          window.clearTimeout(timer);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 7000, maximumAge: 0 },
+      );
+    });
+  }, []);
+
+  const captureAndUpload = useCallback(async () => {
+    setUploadErr(null);
+    setCamErr(null);
+    setUploading(true);
+    try {
+      const v = videoRef.current;
+      const c = canvasRef.current;
+      if (!v || !c) {
+        setUploadErr("ไม่พบกล้อง/พื้นที่วาดภาพ");
+        return;
+      }
+
+      const w = Math.max(1, v.videoWidth || 0);
+      const h = Math.max(1, v.videoHeight || 0);
+      if (w <= 1 || h <= 1) {
+        setUploadErr("กล้องยังไม่พร้อม กรุณาลองใหม่");
+        return;
+      }
+
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d");
+      if (!ctx) {
+        setUploadErr("ไม่สามารถวาดภาพได้");
+        return;
+      }
+
+      ctx.drawImage(v, 0, 0, w, h);
+
+      const pos = await getLocation();
+      if (!pos?.coords || typeof pos.coords.latitude !== "number" || typeof pos.coords.longitude !== "number") {
+        setUploadErr("ต้องอนุญาตให้เข้าถึงตำแหน่ง (GPS) ก่อน จึงจะถ่ายเช็คอินได้");
+        return;
+      }
+      const takenAt = new Date();
+      const lat = pos?.coords?.latitude ?? null;
+      const lng = pos?.coords?.longitude ?? null;
+      const acc = pos?.coords?.accuracy ?? null;
+
+      // Stamp overlay (GPS + time) at bottom-left.
+      const pad = Math.max(18, Math.round(Math.min(w, h) * 0.02));
+      const fontSize = Math.max(18, Math.round(Math.min(w, h) * 0.035));
+      ctx.font = `${fontSize}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+      ctx.textBaseline = "top";
+
+      const lines = [
+        `เวลา: ${takenAt.toLocaleString("th-TH")}`,
+        `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}${acc ? ` (±${Math.round(acc)}m)` : ""}`,
+      ];
+
+      const lineH = Math.round(fontSize * 1.25);
+      const boxH = pad + lines.length * lineH + pad;
+      const boxW = Math.round(w * 0.92);
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(0, h - boxH, boxW, boxH);
+      ctx.fillStyle = "white";
+      let y = h - boxH + pad;
+      for (const line of lines) {
+        ctx.fillText(line, pad, y);
+        y += lineH;
+      }
+
+      const blob = await new Promise<Blob | null>((resolve) => c.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) {
+        setUploadErr("แปลงรูปไม่สำเร็จ");
+        return;
+      }
+
+      const filename = `checkin-${takenAt.toISOString().replaceAll(":", "-")}.jpg`;
+      const file = new File([blob], filename, { type: "image/jpeg" });
+
+      const fd = new FormData();
+      fd.append("files", file);
+      const res = await fetch("/api/uploads", { method: "POST", body: fd });
+      const json = (await res.json().catch(() => null)) as UploadResponse | null;
+      if (!res.ok || !json || json.ok !== true || !Array.isArray(json.files) || !json.files[0]?.publicUrl) {
+        const m =
+          json && typeof json === "object" && "message" in json && typeof json.message === "string"
+            ? json.message
+            : "อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่";
+        setUploadErr(m);
+        return;
+      }
+
+      mergeField("checkin", {
+        photo_url: json.files[0].publicUrl,
+        taken_at: takenAt.toISOString(),
+        lat,
+        lng,
+        accuracy: acc,
+      });
+      setCamOpen(false);
+    } finally {
+      setUploading(false);
+    }
+  }, [getLocation, mergeField]);
+
   return (
     <div className="space-y-6">
       {qs.map((n) => {
@@ -1951,6 +2139,69 @@ function Step9({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
             </div>
           </label>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-border bg-background p-4">
+        <div className="text-sm font-semibold text-foreground">ถ่ายรูปเช็คอินหน้างาน</div>
+        <p className="mt-2 text-sm text-foreground">
+          บังคับถ่ายจากกล้องเท่านั้น และต้องอนุญาต GPS เพื่อประทับพิกัดและเวลา ลงบนรูป
+        </p>
+
+        {checkinUrl ? (
+          <div className="mt-3 space-y-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={checkinUrl}
+              alt="รูปเช็คอินหน้างาน"
+              className="w-full max-w-md rounded-2xl border border-border bg-card object-contain"
+            />
+            {checkinTakenAt ? <div className="text-xs text-muted">เวลาถ่าย: {new Date(checkinTakenAt).toLocaleString("th-TH")}</div> : null}
+            <button
+              type="button"
+              onClick={() => mergeField("checkin", { photo_url: "", taken_at: "", lat: null, lng: null, accuracy: null })}
+              className="rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
+            >
+              ถ่ายใหม่
+            </button>
+          </div>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {uploadErr ? <div className="text-sm text-accent">{uploadErr}</div> : null}
+            <button
+              type="button"
+              onClick={() => setCamOpen(true)}
+              className="rounded-2xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background shadow-sm transition hover:bg-foreground/90 disabled:opacity-40"
+              disabled={uploading}
+            >
+              {uploading ? "กำลังเตรียม…" : "เปิดกล้องถ่ายรูป"}
+            </button>
+          </div>
+        )}
+
+        {camOpen ? (
+          <div className="mt-4 rounded-2xl border border-border bg-card p-4 space-y-3">
+            {camErr ? <div className="text-sm text-accent">{camErr}</div> : null}
+            <video ref={videoRef} playsInline muted className="w-full max-w-md rounded-2xl border border-border bg-black" />
+            <canvas ref={canvasRef} className="hidden" />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={captureAndUpload}
+                disabled={uploading || !!camErr}
+                className="rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-40"
+              >
+                {uploading ? "กำลังอัปโหลด…" : "ถ่ายและอัปโหลด"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCamOpen(false)}
+                className="rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );

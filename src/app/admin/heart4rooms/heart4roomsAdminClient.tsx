@@ -34,6 +34,41 @@ type PatchResponse =
   | { ok: true; row: DetailRow }
   | { ok: false; error: string; detail?: unknown };
 
+function getFarmerRoleLabel(rawAnswers: unknown): string {
+  const answers =
+    rawAnswers && typeof rawAnswers === "object" && !Array.isArray(rawAnswers)
+      ? (rawAnswers as Record<string, unknown>)
+      : {};
+
+  const roleRaw = answers.farmer_role;
+  const role = typeof roleRaw === "string" ? roleRaw.trim() : "";
+
+  const otherRaw = answers.farmer_role_other;
+  const other = typeof otherRaw === "string" ? otherRaw.trim() : "";
+  const otherText = other;
+
+  if (role === "owner") return "เจ้าของไร่";
+  if (role === "worker") return "ลูกไร่";
+  if (role === "other") return otherText ? `อื่นๆ: ${otherText}` : "อื่นๆ";
+  return "";
+}
+
+function getFarmerRoleValue(rawAnswers: unknown): { role: "owner" | "worker" | "other" | ""; other: string } {
+  const answers =
+    rawAnswers && typeof rawAnswers === "object" && !Array.isArray(rawAnswers)
+      ? (rawAnswers as Record<string, unknown>)
+      : {};
+
+  const roleRaw = answers.farmer_role;
+  const role = typeof roleRaw === "string" ? roleRaw.trim() : "";
+  const effectiveRole = role === "owner" || role === "worker" || role === "other" ? role : "";
+
+  const otherRaw = answers.farmer_role_other;
+  const other = typeof otherRaw === "string" ? otherRaw : "";
+
+  return { role: effectiveRole as "owner" | "worker" | "other" | "", other: other.trim() };
+}
+
 function Heart4Preview({
   answers,
   editable,
@@ -491,6 +526,40 @@ export function Heart4RoomsAdminClient() {
                       <div className="mt-1 truncate text-xs text-muted">{selectedId}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {dialogMode === "view" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!detail) return;
+                            setSaveError(null);
+                            setDialogMode("edit");
+                            setEditSubmitter(detail.submitter_display_name ?? "");
+                            setEditFarmerFirst(detail.farmer_first_name ?? "");
+                            setEditFarmerLast(detail.farmer_last_name ?? "");
+                            setEditContractNo(detail.contract_no ?? "");
+                            setEditAnswers(
+                              detail.answers && typeof detail.answers === "object" && !Array.isArray(detail.answers)
+                                ? (detail.answers as Heart4SurveyStepsProps["answers"])
+                                : {},
+                            );
+                          }}
+                          className="rounded-2xl bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:bg-foreground/90"
+                        >
+                          แก้ไข
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={savePending}
+                          onClick={() => {
+                            setSaveError(null);
+                            setDialogMode("view");
+                          }}
+                          className="rounded-2xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/5 disabled:opacity-40"
+                        >
+                          ดู
+                        </button>
+                      )}
                       {dialogMode === "edit" ? (
                         <button
                           type="button"
@@ -580,6 +649,75 @@ export function Heart4RoomsAdminClient() {
                               <div className="mt-1 text-sm font-semibold text-foreground">{detail.farmer_last_name}</div>
                             )}
                           </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-border bg-background p-3">
+                          <div className="text-xs font-medium text-muted">ชาวไร่: มีสถานะเป็น</div>
+                          {dialogMode === "edit" ? (
+                            <div className="mt-2 space-y-2">
+                              {(() => {
+                                const v = getFarmerRoleValue(editAnswers);
+                                return (
+                                  <>
+                                    <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                                      <input
+                                        type="radio"
+                                        name="admin_farmer_role"
+                                        checked={v.role === "owner"}
+                                        onChange={() => {
+                                          setField("farmer_role", "owner");
+                                          setField("farmer_role_other", "");
+                                        }}
+                                        className="mt-1"
+                                      />
+                                      <span>เจ้าของไร่</span>
+                                    </label>
+                                    <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                                      <input
+                                        type="radio"
+                                        name="admin_farmer_role"
+                                        checked={v.role === "worker"}
+                                        onChange={() => {
+                                          setField("farmer_role", "worker");
+                                          setField("farmer_role_other", "");
+                                        }}
+                                        className="mt-1"
+                                      />
+                                      <span>ลูกไร่</span>
+                                    </label>
+                                    <div className="space-y-2">
+                                      <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                                        <input
+                                          type="radio"
+                                          name="admin_farmer_role"
+                                          checked={v.role === "other"}
+                                          onChange={() => {
+                                            setField("farmer_role", "other");
+                                          }}
+                                          className="mt-1"
+                                        />
+                                        <span>อื่นๆ</span>
+                                      </label>
+                                      {v.role === "other" ? (
+                                        <input
+                                          value={v.other}
+                                          onChange={(e) => {
+                                            setField("farmer_role_other", e.target.value);
+                                          }}
+                                          className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                                          placeholder="โปรดระบุสถานะอื่น"
+                                        />
+                                      ) : null}
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          ) : (
+                            <div className="mt-1 text-sm font-semibold text-foreground">
+                              {getFarmerRoleLabel(detail.answers) || "-"}
+                            </div>
+                          )}
                         </div>
 
                         <Heart4Preview
