@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { KTISX_ROLE_COOKIE, type KtisxRole } from "@/lib/authConstants";
+import { KTISX_ROLE_COOKIE, KTISX_USER_ID_COOKIE, type KtisxRole } from "@/lib/authConstants";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 async function getRole(): Promise<KtisxRole | null> {
@@ -11,11 +11,14 @@ async function getRole(): Promise<KtisxRole | null> {
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const role = await getRole();
-  if (role !== "admin") return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  if (!role) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
   const { id } = await ctx.params;
   const surveyId = String(id ?? "").trim();
   if (!surveyId) return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status: 400 });
+
+  const userId = (await cookies()).get(KTISX_USER_ID_COOKIE)?.value?.trim() ?? "";
+  if (role === "user" && !userId) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
   const { data, error } = await supabaseAdmin()
     .from("heart4rooms_surveys")
@@ -29,6 +32,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: false, error: "DB_ERROR", detail: error.message }, { status: 500 });
   }
   if (!data) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+
+  if (role === "user" && String((data as { created_by_user_id?: unknown }).created_by_user_id ?? "").trim() !== userId) {
+    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  }
 
   return NextResponse.json({ ok: true, row: data });
 }

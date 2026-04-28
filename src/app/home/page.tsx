@@ -54,12 +54,9 @@ export default async function HomeLandingPage() {
 
         <div className="mt-10 grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
           <div className="mx-auto flex w-full max-w-lg flex-col gap-5 lg:mx-0">
-            <Link
-              href="/form"
-              className="group relative isolate overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-br from-card via-card to-foreground/[0.03] p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.12)] ring-1 ring-foreground/[0.04] transition duration-200 hover:-translate-y-1 hover:border-accent/35 hover:shadow-[0_28px_60px_-12px_rgba(0,0,0,0.18)] hover:ring-accent/20"
-            >
+            <div className="group relative isolate overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-br from-card via-card to-foreground/[0.03] p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.12)] ring-1 ring-foreground/[0.04] transition duration-200 hover:-translate-y-1 hover:border-accent/35 hover:shadow-[0_28px_60px_-12px_rgba(0,0,0,0.18)] hover:ring-accent/20">
               <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-accent/15 blur-2xl transition group-hover:bg-accent/25" />
-              <div className="relative flex items-center justify-between gap-4">
+              <div className="relative flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <span className="inline-flex rounded-full bg-foreground/5 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
                     Form
@@ -68,22 +65,22 @@ export default async function HomeLandingPage() {
                     แบบฟอร์มประเมินศักยภาพไร่อ้อย
                   </h2>
                   <p className="mt-1.5 text-sm text-muted">Onsite Visit Form</p>
-                </div>
-                <span
-                  aria-hidden
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-foreground text-sm font-bold text-background shadow-inner transition group-hover:scale-105"
-                >
-                  →
-                </span>
-              </div>
-            </Link>
 
-            <Link
-              href="/surveys/heart4rooms"
-              className="group relative isolate overflow-hidden rounded-3xl border border-accent/25 bg-gradient-to-br from-accent/[0.08] via-card to-card p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] ring-1 ring-accent/15 transition duration-200 hover:-translate-y-1 hover:border-accent/50 hover:shadow-[0_28px_60px_-12px_rgba(220,38,38,0.12)] hover:ring-accent/30"
-            >
+                  <div className="mt-4">
+                    <Link
+                      href="/form"
+                      className="inline-flex w-full items-center justify-center rounded-2xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background shadow-md transition hover:bg-foreground/90 sm:w-auto"
+                    >
+                      เริ่มทำแบบฟอร์ม
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="group relative isolate overflow-hidden rounded-3xl border border-accent/25 bg-gradient-to-br from-accent/[0.08] via-card to-card p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] ring-1 ring-accent/15 transition duration-200 hover:-translate-y-1 hover:border-accent/50 hover:shadow-[0_28px_60px_-12px_rgba(220,38,38,0.12)] hover:ring-accent/30">
               <div className="pointer-events-none absolute -left-6 bottom-0 h-28 w-28 rounded-full bg-accent/10 blur-2xl transition group-hover:bg-accent/20" />
-              <div className="relative flex items-center justify-between gap-4">
+              <div className="relative flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <span className="inline-flex rounded-full bg-accent/15 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
                     Survey
@@ -92,15 +89,24 @@ export default async function HomeLandingPage() {
                     แบบฟอร์มประเมินหัวใจ 4 ห้อง
                   </h2>
                   <p className="mt-1.5 text-sm text-muted">แบบสำรวจหัวใจ 4 ห้องของการทำอ้อย</p>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-row">
+                    <Link
+                      href="/surveys/heart4rooms"
+                      className="inline-flex w-full items-center justify-center rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-md transition hover:opacity-90 sm:w-auto"
+                    >
+                      เริ่มทำแบบสำรวจ
+                    </Link>
+                    <Link
+                      href="/surveys/heart4rooms/history"
+                      className="inline-flex w-full items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 sm:w-auto"
+                    >
+                      ดูประวัติการตอบของฉัน
+                    </Link>
+                  </div>
                 </div>
-                <span
-                  aria-hidden
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent text-sm font-bold text-white shadow-md transition group-hover:scale-105"
-                >
-                  →
-                </span>
               </div>
-            </Link>
+            </div>
           </div>
 
           <aside className="relative flex w-full max-w-md justify-center lg:max-w-none lg:justify-end">

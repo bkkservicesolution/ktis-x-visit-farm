@@ -2156,13 +2156,6 @@ function Step9({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
               className="w-full max-w-md rounded-2xl border border-border bg-card object-contain"
             />
             {checkinTakenAt ? <div className="text-xs text-muted">เวลาถ่าย: {new Date(checkinTakenAt).toLocaleString("th-TH")}</div> : null}
-            <button
-              type="button"
-              onClick={() => mergeField("checkin", { photo_url: "", taken_at: "", lat: null, lng: null, accuracy: null })}
-              className="rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
-            >
-              ถ่ายใหม่
-            </button>
           </div>
         ) : (
           <div className="mt-3 space-y-3">
