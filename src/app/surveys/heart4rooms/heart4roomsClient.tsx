@@ -1145,7 +1145,14 @@ export function Heart4RoomsClient() {
             </div>
           </section>
 
-          <Heart4SurveySteps step={1} answers={answers} setField={setField} mergeField={mergeField} toggleMulti={toggleMulti} />
+          <Heart4SurveySteps
+            step={1}
+            answers={answers}
+            setField={setField}
+            mergeField={mergeField}
+            toggleMulti={toggleMulti}
+            allowRetake
+          />
         </div>
       ) : (
         <Heart4SurveySteps
@@ -1154,6 +1161,7 @@ export function Heart4RoomsClient() {
           setField={setField}
           mergeField={mergeField}
           toggleMulti={toggleMulti}
+          allowRetake
         />
       )}
 

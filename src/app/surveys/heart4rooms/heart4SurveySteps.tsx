@@ -10,6 +10,11 @@ export type Heart4SurveyStepsProps = {
   setField: (key: string, value: unknown) => void;
   mergeField: (key: string, partial: Record<string, unknown>) => void;
   toggleMulti: (key: string, code: string) => void;
+  /**
+   * Show "ถ่ายใหม่" button for check-in photo only on real fill form.
+   * (Admin preview/history should not show it)
+   */
+  allowRetake?: boolean;
 };
 
 function Lab({ children }: { children: ReactNode }) {
@@ -1548,7 +1553,7 @@ function Step8({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
   );
 }
 
-function Step9({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
+function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveyStepsProps) {
   const qs = [29, 30, 31, 32, 33];
   const v34 = qObj(answers, "q34");
   const tonsPast = typeof v34.tonsPast === "string" ? v34.tonsPast : "";
@@ -2155,7 +2160,22 @@ function Step9({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
               alt="รูปเช็คอินหน้างาน"
               className="w-full max-w-md rounded-2xl border border-border bg-card object-contain"
             />
-            {checkinTakenAt ? <div className="text-xs text-muted">เวลาถ่าย: {new Date(checkinTakenAt).toLocaleString("th-TH")}</div> : null}
+            {checkinTakenAt ? (
+              <div className="text-xs text-muted">เวลาถ่าย: {new Date(checkinTakenAt).toLocaleString("th-TH")}</div>
+            ) : null}
+
+            {allowRetake && !camOpen ? (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setCamOpen(true)}
+                  className="rounded-2xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background shadow-sm transition hover:bg-foreground/90 disabled:opacity-40"
+                  disabled={uploading}
+                >
+                  {uploading ? "กำลังเตรียม…" : "ถ่ายใหม่"}
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="mt-3 space-y-3">
