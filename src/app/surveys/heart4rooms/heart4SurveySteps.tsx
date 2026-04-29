@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { H4Answers } from "@/app/surveys/heart4rooms/heart4roomsClient";
+import { Camera, SwitchCamera, X } from "lucide-react";
 
 export type Heart4SurveyStepsProps = {
   step: number;
@@ -2201,29 +2202,44 @@ function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveySt
             {camErr ? <div className="text-sm text-accent">{camErr}</div> : null}
             <video ref={videoRef} playsInline muted className="w-full max-w-md rounded-2xl border border-border bg-black" />
             <canvas ref={canvasRef} className="hidden" />
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                {/* ยกเลิก (ขาว) + สลับกล้อง (ดำ) อยู่แถวบน */}
+                <button
+                  type="button"
+                  onClick={() => setCamOpen(false)}
+                  disabled={uploading || !!camErr}
+                  className="flex-1 whitespace-nowrap rounded-2xl border border-border bg-white px-3 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-white/95 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <span className="flex items-center justify-center gap-2 leading-none">
+                    <X size={18} strokeWidth={2} aria-hidden="true" />
+                    ยกเลิก
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleFacing}
+                  disabled={uploading || !!camErr}
+                  className="flex-1 whitespace-nowrap rounded-2xl bg-black px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center leading-none"
+                >
+                  <span className="flex items-center justify-center gap-2 leading-none">
+                    <SwitchCamera size={18} strokeWidth={2} aria-hidden="true" />
+                    สลับกล้อง
+                  </span>
+                </button>
+              </div>
+
+              {/* ปุ่มถ่ายและอัปโหลด (แดง) อยู่แถวล่างแบบยาว */}
               <button
                 type="button"
                 onClick={captureAndUpload}
                 disabled={uploading || !!camErr}
-                className="rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-40"
+                className="w-full rounded-2xl bg-red-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center justify-center leading-none"
               >
-                {uploading ? "กำลังอัปโหลด…" : "ถ่ายและอัปโหลด"}
-              </button>
-              <button
-                type="button"
-                onClick={toggleFacing}
-                disabled={uploading || !!camErr}
-                className="rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
-              >
-                สลับกล้อง
-              </button>
-              <button
-                type="button"
-                onClick={() => setCamOpen(false)}
-                className="rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
-              >
-                ยกเลิก
+                <span className="inline-flex items-center justify-center gap-2 leading-none">
+                  <Camera size={18} strokeWidth={2} aria-hidden="true" />
+                  {uploading ? "กำลังอัปโหลด…" : "ถ่ายและอัปโหลด"}
+                </span>
               </button>
             </div>
           </div>
