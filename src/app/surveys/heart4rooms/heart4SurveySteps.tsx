@@ -1578,6 +1578,7 @@ function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveySt
   const [camErr, setCamErr] = useState<string | null>(null);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1601,7 +1602,7 @@ function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveySt
           return;
         }
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          video: { facingMode: { ideal: cameraFacing } },
           audio: false,
         });
         if (!alive) {
@@ -1627,7 +1628,11 @@ function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveySt
       alive = false;
       stopCamera();
     };
-  }, [camOpen, stopCamera]);
+  }, [camOpen, stopCamera, cameraFacing]);
+
+  const toggleFacing = useCallback(() => {
+    setCameraFacing((f) => (f === "environment" ? "user" : "environment"));
+  }, []);
 
   const getLocation = useCallback(async () => {
     if (!navigator.geolocation) return null;
@@ -2204,6 +2209,14 @@ function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveySt
                 className="rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-40"
               >
                 {uploading ? "กำลังอัปโหลด…" : "ถ่ายและอัปโหลด"}
+              </button>
+              <button
+                type="button"
+                onClick={toggleFacing}
+                disabled={uploading || !!camErr}
+                className="rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
+              >
+                สลับกล้อง
               </button>
               <button
                 type="button"
