@@ -88,14 +88,24 @@ function CheckRow({
   checked,
   onChange,
   label,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-1" />
+    <label
+      className={`flex items-start gap-2 text-sm text-foreground ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-1"
+      />
       <span>{label}</span>
     </label>
   );
@@ -1315,7 +1325,7 @@ function Step6({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
   );
 }
 
-function Step7({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
+function Step7({ answers, setField, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
   const q24 = qObj(answers, "q24");
   const q24Uses = qArr(answers, "q24_uses"); // a.i-a.iv
   const q24How = qArr(answers, "q24_how"); // b.i-b.iii
@@ -1324,6 +1334,27 @@ function Step7({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
   const has24How = (c: string) => q24How.includes(c);
   const has24Rate = (c: string) => q24Rate.includes(c);
   const q24OtherSoil = typeof q24.otherSoil === "string" ? q24.otherSoil : "";
+  const q24NoUse = has24Use("v"); // a.v
+
+  const toggle24Use = (code: string) => {
+    if (code === "v") {
+      const nextChecked = !has24Use("v");
+      if (nextChecked) {
+        // "ไม่ได้ใส่" -> clear all other related answers and collapse b,c.
+        setField("q24_uses", ["v"]);
+        setField("q24_how", []);
+        setField("q24_rate", []);
+        mergeField("q24", { otherSoil: "" });
+      } else {
+        toggleMulti("q24_uses", "v");
+      }
+      return;
+    }
+
+    // If user starts selecting actual uses, remove "ไม่ได้ใส่" first.
+    if (has24Use("v")) setField("q24_uses", q24Uses.filter((x) => x !== "v"));
+    toggleMulti("q24_uses", code);
+  };
 
   const q25 = qObj(answers, "q25");
   const q25Opts = qArr(answers, "q25_opts");
@@ -1340,37 +1371,46 @@ function Step7({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
           <div className="rounded-2xl border border-border bg-card p-4">
             <div className="text-sm font-semibold text-foreground">a. ใส่อยู่แล้ว ด้วย</div>
             <div className="mt-3 space-y-2 pl-3">
-              <CheckRow checked={has24Use("i")} onChange={() => toggleMulti("q24_uses", "i")} label="i. ปุ๋ยอินทรีย์ผง" />
-              <CheckRow checked={has24Use("ii")} onChange={() => toggleMulti("q24_uses", "ii")} label="ii. ปุ๋ยอินทรีย์เม็ด" />
-              <CheckRow checked={has24Use("iii")} onChange={() => toggleMulti("q24_uses", "iii")} label="iii. ปุ๋ยอินทรีย์จากที่อื่น ที่ไม่ใช่ของโรงงาน" />
+              <CheckRow checked={has24Use("i")} onChange={() => toggle24Use("i")} label="i. ปุ๋ยอินทรีย์ผง" />
+              <CheckRow checked={has24Use("ii")} onChange={() => toggle24Use("ii")} label="ii. ปุ๋ยอินทรีย์เม็ด" />
+              <CheckRow checked={has24Use("iii")} onChange={() => toggle24Use("iii")} label="iii. ปุ๋ยอินทรีย์จากที่อื่น ที่ไม่ใช่ของโรงงาน" />
               <div className="space-y-2">
-                <CheckRow checked={has24Use("iv")} onChange={() => toggleMulti("q24_uses", "iv")} label="iv. วัสดุปรับปรุงดินอื่น เช่น ขี้ไก่ : โปรดระบุ" />
-                {has24Use("iv") ? (
+                <CheckRow checked={has24Use("iv")} onChange={() => toggle24Use("iv")} label="iv. วัสดุปรับปรุงดินอื่น เช่น ขี้ไก่ : โปรดระบุ" />
+                {has24Use("iv") && !q24NoUse ? (
                   <Text value={q24OtherSoil} onChange={(t) => mergeField("q24", { ...q24, otherSoil: t })} />
                 ) : null}
               </div>
+              <CheckRow checked={has24Use("v")} onChange={() => toggle24Use("v")} label="v. ไม่ได้ใส่" />
             </div>
           </div>
 
-          <div className="rounded-2xl border border-border bg-card p-4">
-            <div className="text-sm font-semibold text-foreground">b. วิธีการใส่</div>
-            <div className="mt-3 space-y-2 pl-3">
-              <CheckRow checked={has24How("i")} onChange={() => toggleMulti("q24_how", "i")} label="i. ใส่รองพื้น" />
-              <CheckRow checked={has24How("ii")} onChange={() => toggleMulti("q24_how", "ii")} label="ii. ใส่บำรุงได้ดี โดยไม่ต้องรอฝน" />
-              <CheckRow checked={has24How("iii")} onChange={() => toggleMulti("q24_how", "iii")} label="iii. ใส่ช่วงฝนมา พร้อมปุ๋ย" />
-            </div>
-          </div>
+          {!q24NoUse ? (
+            <>
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="text-sm font-semibold text-foreground">b. วิธีการใส่</div>
+                <div className="mt-3 space-y-2 pl-3">
+                  <CheckRow checked={has24How("i")} onChange={() => toggleMulti("q24_how", "i")} label="i. ใส่รองพื้น" />
+                  <CheckRow
+                    checked={has24How("ii")}
+                    onChange={() => toggleMulti("q24_how", "ii")}
+                    label="ii. ใส่บำรุงได้ดี โดยไม่ต้องรอฝน"
+                  />
+                  <CheckRow checked={has24How("iii")} onChange={() => toggleMulti("q24_how", "iii")} label="iii. ใส่ช่วงฝนมา พร้อมปุ๋ย" />
+                </div>
+              </div>
 
-          <div className="rounded-2xl border border-border bg-card p-4">
-            <div className="text-sm font-semibold text-foreground">c. ท่านใส่อินทรีย์ในอัตรา</div>
-            <div className="mt-3 space-y-2 pl-3">
-              <CheckRow checked={has24Rate("i")} onChange={() => toggleMulti("q24_rate", "i")} label="i. 2 ตัน/ไร่" />
-              <CheckRow checked={has24Rate("ii")} onChange={() => toggleMulti("q24_rate", "ii")} label="ii. 1 ตัน/ไร่" />
-              <CheckRow checked={has24Rate("iii")} onChange={() => toggleMulti("q24_rate", "iii")} label="iii. 500 กก/ไร่" />
-              <CheckRow checked={has24Rate("iv")} onChange={() => toggleMulti("q24_rate", "iv")} label="iv. 200 กก/ไร่" />
-              <CheckRow checked={has24Rate("v")} onChange={() => toggleMulti("q24_rate", "v")} label="v. ต่ำกว่า 200 กก/ไร่ (4 กระสอบ)" />
-            </div>
-          </div>
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="text-sm font-semibold text-foreground">c. ท่านใส่อินทรีย์ในอัตรา</div>
+                <div className="mt-3 space-y-2 pl-3">
+                  <CheckRow checked={has24Rate("i")} onChange={() => toggleMulti("q24_rate", "i")} label="i. 2 ตัน/ไร่" />
+                  <CheckRow checked={has24Rate("ii")} onChange={() => toggleMulti("q24_rate", "ii")} label="ii. 1 ตัน/ไร่" />
+                  <CheckRow checked={has24Rate("iii")} onChange={() => toggleMulti("q24_rate", "iii")} label="iii. 500 กก/ไร่" />
+                  <CheckRow checked={has24Rate("iv")} onChange={() => toggleMulti("q24_rate", "iv")} label="iv. 200 กก/ไร่" />
+                  <CheckRow checked={has24Rate("v")} onChange={() => toggleMulti("q24_rate", "v")} label="v. ต่ำกว่า 200 กก/ไร่ (4 กระสอบ)" />
+                </div>
+              </div>
+            </>
+          ) : null}
         </div>
       </section>
 
@@ -1554,7 +1594,7 @@ function Step8({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
   );
 }
 
-function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveyStepsProps) {
+function Step9({ answers, setField, mergeField, toggleMulti, allowRetake }: Heart4SurveyStepsProps) {
   const qs = [29, 30, 31, 32, 33];
   const v34 = qObj(answers, "q34");
   const tonsPast = typeof v34.tonsPast === "string" ? v34.tonsPast : "";
@@ -1564,6 +1604,53 @@ function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveySt
   const has35 = (c: string) => q35m.includes(c);
   const v35 = qObj(answers, "q35");
   const v36 = qObj(answers, "q36");
+  const q36mStored = qArr(answers, "q36_multi");
+  const q36LegacyChoice = typeof v36.choice === "string" ? v36.choice.trim() : "";
+  const Q36_CODES = new Set(["a", "b", "c", "d", "e", "f", "g"]);
+  const q36Selected = (() => {
+    if (q36mStored.length > 0) return q36mStored.filter((c) => Q36_CODES.has(c));
+    if (q36LegacyChoice && Q36_CODES.has(q36LegacyChoice)) return [q36LegacyChoice];
+    return [];
+  })();
+  const has36 = (c: string) => q36Selected.includes(c);
+  const q36AtMax = q36Selected.length >= 3;
+
+  function clearQ36Detail(code: string): Record<string, unknown> {
+    switch (code) {
+      case "a":
+        return { travel_place: "" };
+      case "b":
+        return { fert_formula: "" };
+      case "c":
+        return { chemical: "" };
+      case "d":
+        return { organic_qty: "" };
+      case "e":
+        return { water_type: "" };
+      case "f":
+        return { variety: "" };
+      case "g":
+        return { other: "" };
+      default:
+        return {};
+    }
+  }
+
+  function toggle36(code: string) {
+    const cur = [...q36Selected];
+    const i = cur.indexOf(code);
+    if (i >= 0) {
+      cur.splice(i, 1);
+      setField("q36_multi", cur);
+      mergeField("q36", { choice: "", ...clearQ36Detail(code) });
+      return;
+    }
+    if (cur.length >= 3) return;
+    cur.push(code);
+    setField("q36_multi", cur);
+    mergeField("q36", { choice: "" });
+  }
+
   const v37 = qObj(answers, "q37");
   const v38 = qObj(answers, "q38");
 
@@ -1885,168 +1972,143 @@ function Step9({ answers, mergeField, toggleMulti, allowRetake }: Heart4SurveySt
         <div className="text-sm font-semibold text-foreground">ข้อ 36 — รางวัลที่อยากได้</div>
         <p className="mt-2 text-sm text-foreground">
           หากท่านสามารถทำตันต่อไร่ได้ตามเป้าหมาย หรือเป็นชาวไร่มืออาชีพ ที่เป็นตัวอย่างการทำหัวใจ 4 ห้อง เพื่ออ้อยผลผลิตสูงได้แข็งแรง
-          ท่านอยากได้อะไรเป็นรางวัล
+          ท่านอยากได้อะไรเป็นรางวัล <span className="font-medium">(เลือกได้ไม่เกิน 3 ข้อ)</span>
         </p>
+        {q36AtMax ? (
+          <p className="mt-2 text-xs text-muted">เลือกครบ 3 ข้อแล้ว — ถ้าจะเปลี่ยน ให้เอาติ๊กออกจากข้อที่ไม่ต้องการก่อน</p>
+        ) : null}
         <div className="mt-3 space-y-3">
-          <label className="block">
-            <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-              <input
-                type="radio"
-                name="q36"
-                checked={v36.choice === "a"}
-                onChange={() => mergeField("q36", { ...v36, choice: "a" })}
-                className="mt-1"
-              />
-              <span>a. ไปเที่ยว</span>
-            </div>
-            {v36.choice === "a" ? (
-              <div className="mt-2 pl-6">
+          <div className="space-y-2">
+            <CheckRow
+              checked={has36("a")}
+              disabled={!has36("a") && q36AtMax}
+              onChange={() => toggle36("a")}
+              label="a. ไปเที่ยว"
+            />
+            {has36("a") ? (
+              <div className="pl-6">
                 <Lab>i. โปรดระบุ สถานที่</Lab>
                 <Line
                   value={typeof v36.travel_place === "string" ? (v36.travel_place as string) : ""}
-                  onChange={(t) => mergeField("q36", { ...v36, choice: "a", travel_place: t })}
+                  onChange={(t) => mergeField("q36", { travel_place: t })}
                   placeholder="สถานที่"
                 />
               </div>
             ) : null}
-          </label>
+          </div>
 
-          <label className="block">
-            <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-              <input
-                type="radio"
-                name="q36"
-                checked={v36.choice === "b"}
-                onChange={() => mergeField("q36", { ...v36, choice: "b" })}
-                className="mt-1"
-              />
-              <span>b. ตั๋วส่วนลดปุ๋ยบำรุง</span>
-            </div>
-            {v36.choice === "b" ? (
-              <div className="mt-2 pl-6">
+          <div className="space-y-2">
+            <CheckRow
+              checked={has36("b")}
+              disabled={!has36("b") && q36AtMax}
+              onChange={() => toggle36("b")}
+              label="b. ตั๋วส่วนลดปุ๋ยบำรุง"
+            />
+            {has36("b") ? (
+              <div className="pl-6">
                 <Lab>i. โปรดระบุ สูตรที่ต้องการ</Lab>
                 <Line
                   value={typeof v36.fert_formula === "string" ? (v36.fert_formula as string) : ""}
-                  onChange={(t) => mergeField("q36", { ...v36, choice: "b", fert_formula: t })}
+                  onChange={(t) => mergeField("q36", { fert_formula: t })}
                   placeholder="สูตรที่ต้องการ"
                 />
               </div>
             ) : null}
-          </label>
+          </div>
 
-          <label className="block">
-            <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-              <input
-                type="radio"
-                name="q36"
-                checked={v36.choice === "c"}
-                onChange={() => mergeField("q36", { ...v36, choice: "c" })}
-                className="mt-1"
-              />
-              <span>c. ตั๋วส่วนลดค่ายา กำจัด วัชพืช โรค แมลง</span>
-            </div>
-            {v36.choice === "c" ? (
-              <div className="mt-2 pl-6">
+          <div className="space-y-2">
+            <CheckRow
+              checked={has36("c")}
+              disabled={!has36("c") && q36AtMax}
+              onChange={() => toggle36("c")}
+              label="c. ตั๋วส่วนลดค่ายา กำจัด วัชพืช โรค แมลง"
+            />
+            {has36("c") ? (
+              <div className="pl-6">
                 <Lab>i. โปรดระบุ ยาที่ต้องการ</Lab>
                 <Line
                   value={typeof v36.chemical === "string" ? (v36.chemical as string) : ""}
-                  onChange={(t) => mergeField("q36", { ...v36, choice: "c", chemical: t })}
+                  onChange={(t) => mergeField("q36", { chemical: t })}
                   placeholder="ยาที่ต้องการ"
                 />
               </div>
             ) : null}
-          </label>
+          </div>
 
-          <label className="block">
-            <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-              <input
-                type="radio"
-                name="q36"
-                checked={v36.choice === "d"}
-                onChange={() => mergeField("q36", { ...v36, choice: "d" })}
-                className="mt-1"
-              />
-              <span>d. รางวัลแถม ปุ๋ยอินทรีย์ พัฒนาโครงสร้างดิน</span>
-            </div>
-            {v36.choice === "d" ? (
-              <div className="mt-2 pl-6">
+          <div className="space-y-2">
+            <CheckRow
+              checked={has36("d")}
+              disabled={!has36("d") && q36AtMax}
+              onChange={() => toggle36("d")}
+              label="d. รางวัลแถม ปุ๋ยอินทรีย์ พัฒนาโครงสร้างดิน"
+            />
+            {has36("d") ? (
+              <div className="pl-6">
                 <Lab>i. โปรดระบุ จำนวนที่ต้องการ</Lab>
                 <Line
                   value={typeof v36.organic_qty === "string" ? (v36.organic_qty as string) : ""}
-                  onChange={(t) => mergeField("q36", { ...v36, choice: "d", organic_qty: t })}
+                  onChange={(t) => mergeField("q36", { organic_qty: t })}
                   placeholder="จำนวนที่ต้องการ"
                 />
               </div>
             ) : null}
-          </label>
+          </div>
 
-          <label className="block">
-            <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-              <input
-                type="radio"
-                name="q36"
-                checked={v36.choice === "e"}
-                onChange={() => mergeField("q36", { ...v36, choice: "e" })}
-                className="mt-1"
-              />
-              <span>e. สนับสนุนงบสร้างแหล่งน้ำ</span>
-            </div>
-            {v36.choice === "e" ? (
-              <div className="mt-2 pl-6">
+          <div className="space-y-2">
+            <CheckRow
+              checked={has36("e")}
+              disabled={!has36("e") && q36AtMax}
+              onChange={() => toggle36("e")}
+              label="e. สนับสนุนงบสร้างแหล่งน้ำ"
+            />
+            {has36("e") ? (
+              <div className="pl-6">
                 <Lab>i. โปรดระบุ ประเภทแหล่งน้ำที่ต้องการสร้าง</Lab>
                 <Line
                   value={typeof v36.water_type === "string" ? (v36.water_type as string) : ""}
-                  onChange={(t) => mergeField("q36", { ...v36, choice: "e", water_type: t })}
+                  onChange={(t) => mergeField("q36", { water_type: t })}
                   placeholder="ประเภทแหล่งน้ำ"
                 />
               </div>
             ) : null}
-          </label>
+          </div>
 
-          <label className="block">
-            <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-              <input
-                type="radio"
-                name="q36"
-                checked={v36.choice === "f"}
-                onChange={() => mergeField("q36", { ...v36, choice: "f" })}
-                className="mt-1"
-              />
-              <span>f. สิทธิจองพันธุ์ใหม่ที่โรงงานพัฒนา ขยายก่อนใคร</span>
-            </div>
-            {v36.choice === "f" ? (
-              <div className="mt-2 pl-6">
+          <div className="space-y-2">
+            <CheckRow
+              checked={has36("f")}
+              disabled={!has36("f") && q36AtMax}
+              onChange={() => toggle36("f")}
+              label="f. สิทธิจองพันธุ์ใหม่ที่โรงงานพัฒนา ขยายก่อนใคร"
+            />
+            {has36("f") ? (
+              <div className="pl-6">
                 <Lab>i. โปรดระบุ พันธุ์ที่ต้องการ</Lab>
                 <Line
                   value={typeof v36.variety === "string" ? (v36.variety as string) : ""}
-                  onChange={(t) => mergeField("q36", { ...v36, choice: "f", variety: t })}
+                  onChange={(t) => mergeField("q36", { variety: t })}
                   placeholder="พันธุ์ที่ต้องการ"
                 />
               </div>
             ) : null}
-          </label>
+          </div>
 
-          <label className="block">
-            <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-              <input
-                type="radio"
-                name="q36"
-                checked={v36.choice === "g"}
-                onChange={() => mergeField("q36", { ...v36, choice: "g" })}
-                className="mt-1"
-              />
-              <span>g. อื่นๆ : …</span>
-            </div>
-            {v36.choice === "g" ? (
-              <div className="mt-2 pl-6">
+          <div className="space-y-2">
+            <CheckRow
+              checked={has36("g")}
+              disabled={!has36("g") && q36AtMax}
+              onChange={() => toggle36("g")}
+              label="g. อื่นๆ : …"
+            />
+            {has36("g") ? (
+              <div className="pl-6">
                 <Lab>โปรดระบุ</Lab>
                 <Text
                   value={typeof v36.other === "string" ? (v36.other as string) : ""}
-                  onChange={(t) => mergeField("q36", { ...v36, choice: "g", other: t })}
+                  onChange={(t) => mergeField("q36", { other: t })}
                 />
               </div>
             ) : null}
-          </label>
+          </div>
         </div>
       </section>
 

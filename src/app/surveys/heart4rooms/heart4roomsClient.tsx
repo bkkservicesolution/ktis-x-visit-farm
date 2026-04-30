@@ -604,9 +604,12 @@ export function Heart4RoomsClient() {
         const h = arr("q24_how");
         const r = arr("q24_rate");
         if (u.length === 0) missing.push("ข้อ 24 (a): เลือกอย่างน้อย 1 ข้อ");
-        if (h.length === 0) missing.push("ข้อ 24 (b): เลือกอย่างน้อย 1 ข้อ");
-        if (r.length === 0) missing.push("ข้อ 24 (c): เลือกอย่างน้อย 1 ข้อ");
-        if (u.includes("iv") && !nonEmpty(q24.otherSoil)) missing.push("ข้อ 24 (a.iv): โปรดระบุ");
+        const noUse = u.includes("v"); // a.v = ไม่ได้ใส่
+        if (!noUse) {
+          if (h.length === 0) missing.push("ข้อ 24 (b): เลือกอย่างน้อย 1 ข้อ");
+          if (r.length === 0) missing.push("ข้อ 24 (c): เลือกอย่างน้อย 1 ข้อ");
+          if (u.includes("iv") && !nonEmpty(q24.otherSoil)) missing.push("ข้อ 24 (a.iv): โปรดระบุ");
+        }
 
         const q25 = obj("q25");
         const o = arr("q25_opts");
@@ -659,15 +662,19 @@ export function Heart4RoomsClient() {
         if (q35m.includes("other") && !nonEmpty(q35.other)) missing.push("ข้อ 35 (d): โปรดระบุ");
 
         const q36 = obj("q36");
-        const c36 = s(q36.choice);
-        if (!c36) missing.push("ข้อ 36: เลือกคำตอบ");
-        if (c36 === "a" && !nonEmpty(q36.travel_place)) missing.push("ข้อ 36 (a): สถานที่");
-        if (c36 === "b" && !nonEmpty(q36.fert_formula)) missing.push("ข้อ 36 (b): สูตรที่ต้องการ");
-        if (c36 === "c" && !nonEmpty(q36.chemical)) missing.push("ข้อ 36 (c): ยาที่ต้องการ");
-        if (c36 === "d" && !nonEmpty(q36.organic_qty)) missing.push("ข้อ 36 (d): จำนวนที่ต้องการ");
-        if (c36 === "e" && !nonEmpty(q36.water_type)) missing.push("ข้อ 36 (e): ประเภทแหล่งน้ำ");
-        if (c36 === "f" && !nonEmpty(q36.variety)) missing.push("ข้อ 36 (f): พันธุ์ที่ต้องการ");
-        if (c36 === "g" && !nonEmpty(q36.other)) missing.push("ข้อ 36 (g): โปรดระบุ");
+        const q36m = arr("q36_multi");
+        const leg36 = s(q36.choice);
+        const q36Sel =
+          q36m.length > 0 ? q36m : leg36 && ["a", "b", "c", "d", "e", "f", "g"].includes(leg36) ? [leg36] : [];
+        if (q36Sel.length === 0) missing.push("ข้อ 36: เลือกอย่างน้อย 1 ข้อ");
+        if (q36Sel.length > 3) missing.push("ข้อ 36: เลือกได้ไม่เกิน 3 ข้อ");
+        if (q36Sel.includes("a") && !nonEmpty(q36.travel_place)) missing.push("ข้อ 36 (a): สถานที่");
+        if (q36Sel.includes("b") && !nonEmpty(q36.fert_formula)) missing.push("ข้อ 36 (b): สูตรที่ต้องการ");
+        if (q36Sel.includes("c") && !nonEmpty(q36.chemical)) missing.push("ข้อ 36 (c): ยาที่ต้องการ");
+        if (q36Sel.includes("d") && !nonEmpty(q36.organic_qty)) missing.push("ข้อ 36 (d): จำนวนที่ต้องการ");
+        if (q36Sel.includes("e") && !nonEmpty(q36.water_type)) missing.push("ข้อ 36 (e): ประเภทแหล่งน้ำ");
+        if (q36Sel.includes("f") && !nonEmpty(q36.variety)) missing.push("ข้อ 36 (f): พันธุ์ที่ต้องการ");
+        if (q36Sel.includes("g") && !nonEmpty(q36.other)) missing.push("ข้อ 36 (g): โปรดระบุ");
 
         const q37 = obj("q37");
         const c37 = s(q37.choice);

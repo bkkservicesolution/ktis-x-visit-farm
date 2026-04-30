@@ -356,20 +356,33 @@ function formatQ35(answers: Record<string, unknown>, map: LabelMap): string {
   return bits.filter(Boolean).join(" | ");
 }
 
-function formatQ36(answers: Record<string, unknown>, map: LabelMap): string {
-  const base = renderChoiceBlock("q36", answers, map);
+function q36SelectedCodes(answers: Record<string, unknown>): string[] {
+  const multi = arr(answers.q36_multi);
   const q = getObj(answers.q36);
-  const c = s(q.choice);
-  const extra: string[] = [];
-  if (c === "a" && s(q.travel_place)) extra.push(`สถานที่: ${s(q.travel_place)}`);
-  if (c === "b" && s(q.fert_formula)) extra.push(`สูตรปุ๋ย: ${s(q.fert_formula)}`);
-  if (c === "c" && s(q.chemical)) extra.push(`ยา: ${s(q.chemical)}`);
-  if (c === "d" && s(q.organic_qty)) extra.push(`ปุ๋ยอินทรีย์: ${s(q.organic_qty)}`);
-  if (c === "e" && s(q.water_type)) extra.push(`แหล่งน้ำ: ${s(q.water_type)}`);
-  if (c === "f" && s(q.variety)) extra.push(`พันธุ์: ${s(q.variety)}`);
-  if (c === "g" && s(q.other)) extra.push(`อื่นๆ: ${s(q.other)}`);
-  const join = [base, ...extra].filter(Boolean).join(" | ");
-  return join || choiceLabel("q36", c, map);
+  const leg = s(q.choice);
+  const ok = new Set(["a", "b", "c", "d", "e", "f", "g"]);
+  if (multi.length > 0) return multi.filter((c) => ok.has(c));
+  if (leg && ok.has(leg)) return [leg];
+  return [];
+}
+
+function formatQ36(answers: Record<string, unknown>, map: LabelMap): string {
+  const q = getObj(answers.q36);
+  const codes = q36SelectedCodes(answers);
+  const parts: string[] = [];
+  for (const c of codes) {
+    const main = choiceLabel("q36", c, map);
+    const bits: string[] = [];
+    if (c === "a" && s(q.travel_place)) bits.push(`สถานที่: ${s(q.travel_place)}`);
+    if (c === "b" && s(q.fert_formula)) bits.push(`สูตรปุ๋ย: ${s(q.fert_formula)}`);
+    if (c === "c" && s(q.chemical)) bits.push(`ยา: ${s(q.chemical)}`);
+    if (c === "d" && s(q.organic_qty)) bits.push(`ปุ๋ยอินทรีย์: ${s(q.organic_qty)}`);
+    if (c === "e" && s(q.water_type)) bits.push(`แหล่งน้ำ: ${s(q.water_type)}`);
+    if (c === "f" && s(q.variety)) bits.push(`พันธุ์: ${s(q.variety)}`);
+    if (c === "g" && s(q.other)) bits.push(`อื่นๆ: ${s(q.other)}`);
+    parts.push(bits.length ? `${main} (${bits.join(", ")})` : main);
+  }
+  return parts.join(" | ");
 }
 
 function farmerRoleLabel(answers: Record<string, unknown>): string {
