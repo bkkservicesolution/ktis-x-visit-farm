@@ -296,6 +296,14 @@ function Step3({ answers, mergeField, toggleMulti }: Heart4SurveyStepsProps) {
       <section className="rounded-2xl border border-border bg-background p-4">
         <div className="text-sm font-semibold text-foreground">ข้อ 4</div>
         <p className="mt-2 text-sm text-foreground">ท่านพบวัชพืชร้ายแรงในแปลงหรือไม่</p>
+        <div className="mt-3 flex justify-center overflow-hidden rounded-2xl border border-border bg-card">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/heart4rooms/q4-weed.png"
+            alt="ตัวอย่างวัชพืชร้ายแรงในไร่อ้อย"
+            className="block h-auto w-1/2 object-contain"
+          />
+        </div>
         <RadioRow
           name="q4"
           value={q4Choice}
