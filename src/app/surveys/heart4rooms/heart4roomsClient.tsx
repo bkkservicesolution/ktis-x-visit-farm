@@ -32,6 +32,65 @@ const TAB_TITLES = [
   "Part 3 ประเมินความพึงพอใจ และ นักส่งเสริม",
 ] as const;
 
+type H4DraftV1 = {
+  v: 1;
+  savedAt: string;
+  tab: number;
+  submitterDisplayName: string;
+  farmerMode: "search" | "manual";
+  farmerFirst: string;
+  farmerLast: string;
+  contractNo: string;
+  answers: H4Answers;
+};
+
+const H4_DRAFT_KEY = "ktisx:surveys:heart4rooms:draft:v1";
+
+function readDraft(): H4DraftV1 | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(H4_DRAFT_KEY);
+    if (!raw) return null;
+    const json = JSON.parse(raw) as unknown;
+    if (!json || typeof json !== "object") return null;
+    const d = json as Partial<H4DraftV1>;
+    if (d.v !== 1) return null;
+    if (typeof d.tab !== "number" || !Number.isFinite(d.tab)) return null;
+    if (!d.answers || typeof d.answers !== "object" || Array.isArray(d.answers)) return null;
+    return {
+      v: 1,
+      savedAt: typeof d.savedAt === "string" ? d.savedAt : new Date().toISOString(),
+      tab: d.tab,
+      submitterDisplayName: typeof d.submitterDisplayName === "string" ? d.submitterDisplayName : "",
+      farmerMode: d.farmerMode === "manual" ? "manual" : "search",
+      farmerFirst: typeof d.farmerFirst === "string" ? d.farmerFirst : "",
+      farmerLast: typeof d.farmerLast === "string" ? d.farmerLast : "",
+      contractNo: typeof d.contractNo === "string" ? d.contractNo : "",
+      answers: d.answers as H4Answers,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(draft: H4DraftV1) {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(H4_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // ignore (quota, privacy mode, etc.)
+  }
+}
+
+function clearDraft() {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(H4_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function Heart4RoomsClient() {
   const router = useRouter();
   const [tab, setTab] = useState(0);
@@ -68,6 +127,40 @@ export function Heart4RoomsClient() {
   const [contractOptions, setContractOptions] = useState<FarmerOption[]>([]);
 
   const [answers, setAnswers] = useState<H4Answers>({});
+
+  // Restore draft after mount to avoid hydration mismatch.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const d = readDraft();
+      if (!d) return;
+      setTab(Math.max(0, Math.min(TAB_TITLES.length - 1, Math.floor(d.tab))));
+      setSubmitterDisplayName(d.submitterDisplayName ?? "");
+      setFarmerMode(d.farmerMode);
+      setFarmerFirst(d.farmerFirst ?? "");
+      setFarmerLast(d.farmerLast ?? "");
+      setContractNo(d.contractNo ?? "");
+      setAnswers(d.answers ?? {});
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const draft: H4DraftV1 = {
+        v: 1,
+        savedAt: new Date().toISOString(),
+        tab,
+        submitterDisplayName,
+        farmerMode,
+        farmerFirst,
+        farmerLast,
+        contractNo,
+        answers,
+      };
+      writeDraft(draft);
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, [answers, contractNo, farmerFirst, farmerLast, farmerMode, submitterDisplayName, tab]);
 
   const farmerRole = useMemo(() => {
     const v = answers.farmer_role;
@@ -361,7 +454,9 @@ export function Heart4RoomsClient() {
           return;
         }
         setMe(json);
-        if (json.promoter_full_name) setSubmitterDisplayName(json.promoter_full_name);
+        if (json.promoter_full_name) {
+          setSubmitterDisplayName((cur) => (cur.trim() ? cur : json.promoter_full_name ?? ""));
+        }
       } finally {
         if (alive) setMeLoading(false);
       }
@@ -728,6 +823,7 @@ export function Heart4RoomsClient() {
         });
         return;
       }
+      clearDraft();
       const farmerLabel = `${farmerFirst.trim()} ${farmerLast.trim()}`.trim();
       setMessage({
         type: "ok",

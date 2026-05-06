@@ -130,12 +130,18 @@ export function Heart4RoomsHistoryClient() {
   }
 
   useEffect(() => {
-    void load();
+    const t = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(t);
   }, []);
 
   useEffect(() => {
     if (!selectedId) return;
-    void loadDetail(selectedId);
+    const t = window.setTimeout(() => {
+      void loadDetail(selectedId);
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [selectedId]);
 
   return (
