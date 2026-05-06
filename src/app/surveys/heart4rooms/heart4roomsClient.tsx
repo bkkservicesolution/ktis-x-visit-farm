@@ -42,19 +42,30 @@ type H4DraftV1 = {
   farmerLast: string;
   contractNo: string;
   answers: H4Answers;
+  ownerUserId: string;
 };
 
-const H4_DRAFT_KEY = "ktisx:surveys:heart4rooms:draft:v1";
+const H4_DRAFT_KEY_PREFIX = "ktisx:surveys:heart4rooms:draft:v1";
 
-function readDraft(): H4DraftV1 | null {
+function draftKey(userId: string) {
+  return `${H4_DRAFT_KEY_PREFIX}:${userId}`;
+}
+
+function legacyKey() {
+  // pre-user-scoped draft key
+  return H4_DRAFT_KEY_PREFIX;
+}
+
+function readDraft(userId: string): H4DraftV1 | null {
   try {
     if (typeof window === "undefined") return null;
-    const raw = window.localStorage.getItem(H4_DRAFT_KEY);
+    const raw = window.localStorage.getItem(draftKey(userId));
     if (!raw) return null;
     const json = JSON.parse(raw) as unknown;
     if (!json || typeof json !== "object") return null;
     const d = json as Partial<H4DraftV1>;
     if (d.v !== 1) return null;
+    if (typeof d.ownerUserId !== "string" || d.ownerUserId !== userId) return null;
     if (typeof d.tab !== "number" || !Number.isFinite(d.tab)) return null;
     if (!d.answers || typeof d.answers !== "object" || Array.isArray(d.answers)) return null;
     return {
@@ -67,25 +78,28 @@ function readDraft(): H4DraftV1 | null {
       farmerLast: typeof d.farmerLast === "string" ? d.farmerLast : "",
       contractNo: typeof d.contractNo === "string" ? d.contractNo : "",
       answers: d.answers as H4Answers,
+      ownerUserId: userId,
     };
   } catch {
     return null;
   }
 }
 
-function writeDraft(draft: H4DraftV1) {
+function writeDraft(userId: string, draft: H4DraftV1) {
   try {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(H4_DRAFT_KEY, JSON.stringify(draft));
+    window.localStorage.setItem(draftKey(userId), JSON.stringify(draft));
   } catch {
     // ignore (quota, privacy mode, etc.)
   }
 }
 
-function clearDraft() {
+function clearDraft(userId: string) {
   try {
     if (typeof window === "undefined") return;
-    window.localStorage.removeItem(H4_DRAFT_KEY);
+    window.localStorage.removeItem(draftKey(userId));
+    // clean up legacy key (from old versions)
+    window.localStorage.removeItem(legacyKey());
   } catch {
     // ignore
   }
@@ -131,7 +145,8 @@ export function Heart4RoomsClient() {
   // Restore draft after mount to avoid hydration mismatch.
   useEffect(() => {
     const t = window.setTimeout(() => {
-      const d = readDraft();
+      if (!me || me.ok !== true || !me.userId) return;
+      const d = readDraft(me.userId);
       if (!d) return;
       setTab(Math.max(0, Math.min(TAB_TITLES.length - 1, Math.floor(d.tab))));
       setSubmitterDisplayName(d.submitterDisplayName ?? "");
@@ -142,9 +157,10 @@ export function Heart4RoomsClient() {
       setAnswers(d.answers ?? {});
     }, 0);
     return () => window.clearTimeout(t);
-  }, []);
+  }, [me]);
 
   useEffect(() => {
+    if (!me || me.ok !== true || !me.userId) return;
     const id = window.setTimeout(() => {
       const draft: H4DraftV1 = {
         v: 1,
@@ -156,11 +172,12 @@ export function Heart4RoomsClient() {
         farmerLast,
         contractNo,
         answers,
+        ownerUserId: me.userId,
       };
-      writeDraft(draft);
+      writeDraft(me.userId, draft);
     }, 250);
     return () => window.clearTimeout(id);
-  }, [answers, contractNo, farmerFirst, farmerLast, farmerMode, submitterDisplayName, tab]);
+  }, [answers, contractNo, farmerFirst, farmerLast, farmerMode, me, submitterDisplayName, tab]);
 
   const farmerRole = useMemo(() => {
     const v = answers.farmer_role;
@@ -823,7 +840,7 @@ export function Heart4RoomsClient() {
         });
         return;
       }
-      clearDraft();
+      if (me && me.ok === true) clearDraft(me.userId);
       const farmerLabel = `${farmerFirst.trim()} ${farmerLast.trim()}`.trim();
       setMessage({
         type: "ok",
