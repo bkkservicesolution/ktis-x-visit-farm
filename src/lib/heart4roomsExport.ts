@@ -19,6 +19,11 @@ export type Heart4ExportRow = {
   attachments: unknown;
 };
 
+export type Heart4RoomsExportProgress = {
+  done: number;
+  total: number;
+};
+
 /** Fixes labels where extract-heart4rooms-map.mjs merged keys incorrectly */
 function patchLabelMap(map: LabelMap): LabelMap {
   const choices = { ...map.choices };
@@ -576,6 +581,67 @@ export async function buildHeart4RoomsExcelBuffer(rows: Heart4ExportRow[], map: 
       const cell = ws.getCell(excelRowIndex, c);
       cell.alignment = { vertical: "top", wrapText: true };
     }
+  }
+
+  const headerRow = ws.getRow(1);
+  headerRow.font = { bold: true };
+  headerRow.alignment = { vertical: "middle", wrapText: true };
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+export async function buildHeart4RoomsExcelBufferWithProgress(
+  rows: Heart4ExportRow[],
+  map: LabelMap,
+  onProgress?: (p: Heart4RoomsExportProgress) => void,
+): Promise<Buffer> {
+  const patched = patchLabelMap(map);
+  const columns = buildExportColumns(patched);
+  const imageCol0 = columns.length;
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "KTIS Visit Farm";
+  const ws = wb.addWorksheet("หัวใจ 4 ห้อง", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+
+  ws.columns = [
+    ...columns.map((c) => ({ header: c.header, width: Math.min(60, c.width) })),
+    { header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 },
+  ];
+
+  const total = rows.length;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const excelRowIndex = i + 2;
+    const cellTexts = columns.map((c) => c.text(row, patched));
+    const url = getCheckinPhotoUrl(row);
+    const rowCells = [...cellTexts, ""];
+    const added = ws.addRow(rowCells);
+    if (url) added.height = 156;
+
+    if (url) {
+      const img = await fetchImageBuffer(url);
+      if (img) {
+        const imageId = wb.addImage({
+          buffer: img.buffer as unknown as ExcelJS.Buffer,
+          extension: img.extension,
+        });
+        ws.addImage(imageId, {
+          tl: { col: imageCol0, row: excelRowIndex - 1 },
+          ext: { width: 280, height: 210 },
+        });
+      }
+    }
+
+    for (let c = 1; c <= rowCells.length; c += 1) {
+      const cell = ws.getCell(excelRowIndex, c);
+      cell.alignment = { vertical: "top", wrapText: true };
+    }
+
+    onProgress?.({ done: i + 1, total });
   }
 
   const headerRow = ws.getRow(1);
