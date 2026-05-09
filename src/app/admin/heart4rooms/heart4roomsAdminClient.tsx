@@ -170,20 +170,44 @@ export function Heart4RoomsAdminClient() {
     return Math.max(0, Math.min(100, Math.floor((exportDone / exportTotal) * 100)));
   }, [exportDone, exportTotal]);
 
+  async function sleep(ms: number) {
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
   async function downloadExportFile(jobId: string, filename: string | null) {
-    const res = await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/file`, { method: "GET" });
-    if (!res.ok) throw new Error("DOWNLOAD_FAILED");
+    const fileEndpoint = `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/file`;
+
+    // The export job writes the XLSX asynchronously; on some environments the
+    // job may be marked done slightly before the file becomes readable.
+    // If the API returns 202 (NOT_READY), wait briefly and retry.
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      res = await fetch(fileEndpoint, { method: "GET" });
+      if (res.status !== 202) break;
+      await sleep(250);
+    }
+    if (!res || !res.ok) {
+      let detail = "";
+      try {
+        const j = (await res?.json().catch(() => null)) as { error?: string; status?: string } | null;
+        if (j?.error) detail = j.status ? `${j.error} (${j.status})` : j.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(detail ? `DOWNLOAD_FAILED:${detail}` : "DOWNLOAD_FAILED");
+    }
+
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const blobUrl = URL.createObjectURL(blob);
     try {
       const a = document.createElement("a");
-      a.href = url;
+      a.href = blobUrl;
       if (filename) a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
     } finally {
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(blobUrl);
     }
   }
 
