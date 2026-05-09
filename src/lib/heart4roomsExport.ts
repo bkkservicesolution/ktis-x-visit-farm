@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import sharp from "sharp";
 
 export type LabelMap = {
   questions: Record<string, string>;
@@ -521,80 +522,79 @@ function formatTs(iso: string): string {
   return d.toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" });
 }
 
-async function fetchImageBuffer(
-  url: string,
-): Promise<{ buffer: Buffer; extension: "jpeg" | "png" | "gif" } | null> {
+type EmbeddedImage = { buffer: Buffer; extension: "jpeg" };
+
+/**
+ * Display dimensions for the check-in image cell. Source images are resized to
+ * roughly 2× this width so they stay sharp on hi-DPI screens after Excel
+ * scales them down — but no larger, to keep memory and file size bounded.
+ */
+const IMAGE_CELL_WIDTH = 280;
+const IMAGE_CELL_HEIGHT = 210;
+const IMAGE_RESIZE_WIDTH = 560;
+const IMAGE_JPEG_QUALITY = 65;
+
+/** Concurrency for image fetch+resize. Each unit holds at most ~ original-image
+ *  bytes + a tiny resized buffer, so this caps peak memory. */
+const IMAGE_FETCH_CONCURRENCY = 4;
+
+/** Hard cap to keep one bad upload from stalling the whole export. */
+const IMAGE_FETCH_TIMEOUT_MS = 20_000;
+
+async function fetchAndCompressImage(url: string): Promise<EmbeddedImage | null> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), IMAGE_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { redirect: "follow" });
+    const res = await fetch(url, { redirect: "follow", signal: ctl.signal });
     if (!res.ok) return null;
-    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (ct.includes("png")) return { buffer: buf, extension: "png" };
-    if (ct.includes("gif")) return { buffer: buf, extension: "gif" };
-    return { buffer: buf, extension: "jpeg" };
+    const raw = Buffer.from(await res.arrayBuffer());
+    if (raw.length === 0) return null;
+
+    // Always re-encode to JPEG. Even already-JPEG photos shrink dramatically
+    // after resize, and unifying the format simplifies ExcelJS image handling.
+    const compressed = await sharp(raw, { failOn: "none" })
+      .rotate() // honor EXIF orientation
+      .resize({ width: IMAGE_RESIZE_WIDTH, withoutEnlargement: true })
+      .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
+      .toBuffer();
+
+    return { buffer: compressed, extension: "jpeg" };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-export async function buildHeart4RoomsExcelBuffer(rows: Heart4ExportRow[], map: LabelMap): Promise<Buffer> {
-  const patched = patchLabelMap(map);
-  const columns = buildExportColumns(patched);
-  const imageCol0 = columns.length;
-
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "KTIS Visit Farm";
-  const ws = wb.addWorksheet("หัวใจ 4 ห้อง", {
-    views: [{ state: "frozen", ySplit: 1 }],
+/** Run an async mapper over an indexed list with bounded concurrency. */
+async function mapWithConcurrency<T>(
+  count: number,
+  concurrency: number,
+  worker: (i: number) => Promise<T>,
+  onItemDone?: (i: number) => void,
+): Promise<T[]> {
+  const out = new Array<T>(count);
+  let next = 0;
+  const lanes = Array.from({ length: Math.max(1, Math.min(concurrency, count)) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= count) return;
+      out[i] = await worker(i);
+      onItemDone?.(i);
+    }
   });
-
-  ws.columns = [
-    ...columns.map((c) => ({ header: c.header, width: Math.min(60, c.width) })),
-    { header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 },
-  ];
-
-  for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i];
-    const excelRowIndex = i + 2;
-    const cellTexts = columns.map((c) => c.text(row, patched));
-    const url = getCheckinPhotoUrl(row);
-    const rowCells = [...cellTexts, ""];
-    const added = ws.addRow(rowCells);
-    if (url) added.height = 156;
-
-    if (url) {
-      const img = await fetchImageBuffer(url);
-      if (img) {
-        const imageId = wb.addImage({
-          // exceljs expects Node Buffer; TS 5 buffer typing differs from Response buffers
-          buffer: img.buffer as unknown as ExcelJS.Buffer,
-          extension: img.extension,
-        });
-        ws.addImage(imageId, {
-          tl: { col: imageCol0, row: excelRowIndex - 1 },
-          ext: { width: 280, height: 210 },
-        });
-      }
-    }
-
-    for (let c = 1; c <= rowCells.length; c += 1) {
-      const cell = ws.getCell(excelRowIndex, c);
-      cell.alignment = { vertical: "top", wrapText: true };
-    }
-  }
-
-  const headerRow = ws.getRow(1);
-  headerRow.font = { bold: true };
-  headerRow.alignment = { vertical: "middle", wrapText: true };
-
-  const buf = await wb.xlsx.writeBuffer();
-  return Buffer.from(buf);
+  await Promise.all(lanes);
+  return out;
 }
 
-export async function buildHeart4RoomsExcelBufferWithProgress(
+type BuildOptions = {
+  onProgress?: (p: Heart4RoomsExportProgress) => void;
+};
+
+async function buildExcelBuffer(
   rows: Heart4ExportRow[],
   map: LabelMap,
-  onProgress?: (p: Heart4RoomsExportProgress) => void,
+  opts: BuildOptions = {},
 ): Promise<Buffer> {
   const patched = patchLabelMap(map);
   const columns = buildExportColumns(patched);
@@ -612,36 +612,58 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
   ];
 
   const total = rows.length;
+  let progressDone = 0;
+  const reportProgress = () => {
+    progressDone += 1;
+    opts.onProgress?.({ done: progressDone, total });
+  };
 
+  // Phase 1: fetch+compress all check-in photos with bounded concurrency.
+  // Rows without a photo URL skip the network entirely and report progress
+  // immediately so the UI keeps moving even when most rows lack images.
+  const urls = rows.map(getCheckinPhotoUrl);
+  const images = await mapWithConcurrency(
+    rows.length,
+    IMAGE_FETCH_CONCURRENCY,
+    async (i) => {
+      const u = urls[i];
+      if (!u) return null;
+      return fetchAndCompressImage(u);
+    },
+    reportProgress,
+  );
+
+  // Phase 2: write rows + embed pre-fetched images. This part is pure CPU/memory
+  // and is fast compared to the network phase above.
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     const excelRowIndex = i + 2;
     const cellTexts = columns.map((c) => c.text(row, patched));
-    const url = getCheckinPhotoUrl(row);
     const rowCells = [...cellTexts, ""];
     const added = ws.addRow(rowCells);
-    if (url) added.height = 156;
 
-    if (url) {
-      const img = await fetchImageBuffer(url);
-      if (img) {
-        const imageId = wb.addImage({
-          buffer: img.buffer as unknown as ExcelJS.Buffer,
-          extension: img.extension,
-        });
-        ws.addImage(imageId, {
-          tl: { col: imageCol0, row: excelRowIndex - 1 },
-          ext: { width: 280, height: 210 },
-        });
-      }
+    const img = images[i];
+    if (img) {
+      added.height = 156;
+      const imageId = wb.addImage({
+        // exceljs expects Node Buffer; TS 5 buffer typing differs from Response buffers
+        buffer: img.buffer as unknown as ExcelJS.Buffer,
+        extension: img.extension,
+      });
+      ws.addImage(imageId, {
+        tl: { col: imageCol0, row: excelRowIndex - 1 },
+        ext: { width: IMAGE_CELL_WIDTH, height: IMAGE_CELL_HEIGHT },
+      });
+    } else if (urls[i]) {
+      // Image fetch failed but URL exists — keep the row tall so the link cell
+      // (column imageCol0) still has visual weight matching nearby rows.
+      added.height = 156;
     }
 
     for (let c = 1; c <= rowCells.length; c += 1) {
       const cell = ws.getCell(excelRowIndex, c);
       cell.alignment = { vertical: "top", wrapText: true };
     }
-
-    onProgress?.({ done: i + 1, total });
   }
 
   const headerRow = ws.getRow(1);
@@ -650,4 +672,16 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
+}
+
+export async function buildHeart4RoomsExcelBuffer(rows: Heart4ExportRow[], map: LabelMap): Promise<Buffer> {
+  return buildExcelBuffer(rows, map);
+}
+
+export async function buildHeart4RoomsExcelBufferWithProgress(
+  rows: Heart4ExportRow[],
+  map: LabelMap,
+  onProgress?: (p: Heart4RoomsExportProgress) => void,
+): Promise<Buffer> {
+  return buildExcelBuffer(rows, map, { onProgress });
 }

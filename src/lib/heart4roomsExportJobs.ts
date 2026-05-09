@@ -97,6 +97,48 @@ function enqueueJsonWrite(filePath: string, data: unknown) {
   q.set(filePath, next);
 }
 
+type ThrottleEntry = { timer: ReturnType<typeof setTimeout> | null; lastRunAt: number };
+
+function throttleState(): Map<string, ThrottleEntry> {
+  const g = globalThis as unknown as { __ktisx_h4_export_throttle__?: Map<string, ThrottleEntry> };
+  if (!g.__ktisx_h4_export_throttle__) g.__ktisx_h4_export_throttle__ = new Map();
+  return g.__ktisx_h4_export_throttle__;
+}
+
+/**
+ * Coalesce frequent progress writes to at most one every `intervalMs`. We
+ * always read the latest snapshot at flush time so the most recent value wins,
+ * even if we drop intermediate updates. The previous code wrote+renamed once
+ * per row, which on Windows produced EPERM races and orphan `.tmp` files.
+ */
+function scheduleThrottledJsonWrite(filePath: string, getData: () => unknown, intervalMs = 250) {
+  const t = throttleState();
+  const cur = t.get(filePath) ?? { timer: null, lastRunAt: 0 };
+  const now = Date.now();
+  const flush = () => {
+    cur.timer = null;
+    cur.lastRunAt = Date.now();
+    enqueueJsonWrite(filePath, getData());
+  };
+  if (cur.timer) {
+    t.set(filePath, cur);
+    return;
+  }
+  const wait = Math.max(0, intervalMs - (now - cur.lastRunAt));
+  cur.timer = setTimeout(flush, wait);
+  t.set(filePath, cur);
+}
+
+function flushThrottledJsonWrite(filePath: string) {
+  const t = throttleState();
+  const cur = t.get(filePath);
+  if (cur?.timer) {
+    clearTimeout(cur.timer);
+    cur.timer = null;
+  }
+  if (cur) cur.lastRunAt = Date.now();
+}
+
 function store(): Map<string, Heart4RoomsExportJobInternal> {
   const g = globalThis as unknown as {
     __ktisx_h4_export_jobs__?: Map<string, Heart4RoomsExportJobInternal>;
@@ -192,7 +234,12 @@ export function updateHeart4RoomsExportJobProgress(id: string, done: number, tot
   job.progress = { done: d, total: Math.max(0, t) };
   job.updatedAt = now;
   job.expiresAt = now + JOB_TTL_MS;
-  enqueueJsonWrite(jobJsonPath(id), snapshot(job));
+  // Coalesce intermediate writes — the SSE reads from in-memory `store()` so it
+  // already sees fresh values; we only persist to disk a few times per second.
+  scheduleThrottledJsonWrite(jobJsonPath(id), () => {
+    const cur = store().get(id);
+    return cur ? snapshot(cur) : snapshot(job);
+  });
 }
 
 export function markHeart4RoomsExportJobDone(id: string, filename: string, buffer: Buffer) {
@@ -206,6 +253,7 @@ export function markHeart4RoomsExportJobDone(id: string, filename: string, buffe
   job.updatedAt = now;
   job.expiresAt = now + JOB_TTL_MS;
   job.error = undefined;
+  flushThrottledJsonWrite(jobJsonPath(id));
   void (async () => {
     await ensureExportDir();
     await writeFile(jobXlsxPath(id), buffer);
@@ -222,6 +270,7 @@ export function markHeart4RoomsExportJobError(id: string, error: string) {
   job.error = error;
   job.updatedAt = now;
   job.expiresAt = now + JOB_TTL_MS;
+  flushThrottledJsonWrite(jobJsonPath(id));
   enqueueJsonWrite(jobJsonPath(id), snapshot(job));
 }
 
@@ -235,6 +284,7 @@ export function markHeart4RoomsExportJobCancelled(id: string) {
   job.filename = undefined;
   job.updatedAt = now;
   job.expiresAt = now + JOB_TTL_MS;
+  flushThrottledJsonWrite(jobJsonPath(id));
   void (async () => {
     enqueueJsonWrite(jobJsonPath(id), snapshot(job));
     await unlink(jobXlsxPath(id)).catch(() => {});

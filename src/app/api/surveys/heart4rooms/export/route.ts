@@ -36,34 +36,45 @@ export async function GET(req: Request) {
     .map((x) => x.trim())
     .filter(Boolean);
 
-  let query = supabaseAdmin()
-    .from("heart4rooms_surveys")
-    .select(
-      "id,created_at,created_by_username,promoter_id,submitter_display_name,farmer_first_name,farmer_last_name,contract_no,answers,attachments",
-    )
-    .order("created_at", { ascending: false });
+  // Supabase enforces a per-request row cap (db.max_rows, default 1000).
+  // Page through with explicit ranges so exports cover the full result set.
+  const PAGE_SIZE = 1000;
+  const HARD_CAP = 100_000;
+  const buildQuery = () => {
+    let qb = supabaseAdmin()
+      .from("heart4rooms_surveys")
+      .select(
+        "id,created_at,created_by_username,promoter_id,submitter_display_name,farmer_first_name,farmer_last_name,contract_no,answers,attachments",
+      )
+      .order("created_at", { ascending: false });
+    if (ids.length > 0) qb = qb.in("id", ids);
+    if (promoter_id) qb = qb.eq("promoter_id", promoter_id);
+    if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) qb = qb.gte("created_at", `${from}T00:00:00.000Z`);
+    if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) qb = qb.lte("created_at", `${to}T23:59:59.999Z`);
+    if (q) {
+      qb = qb.or(
+        [
+          `contract_no.ilike.%${q}%`,
+          `farmer_first_name.ilike.%${q}%`,
+          `farmer_last_name.ilike.%${q}%`,
+          `submitter_display_name.ilike.%${q}%`,
+        ].join(","),
+      );
+    }
+    return qb;
+  };
 
-  if (ids.length > 0) query = query.in("id", ids);
-  if (promoter_id) query = query.eq("promoter_id", promoter_id);
-  if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) query = query.gte("created_at", `${from}T00:00:00.000Z`);
-  if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) query = query.lte("created_at", `${to}T23:59:59.999Z`);
-  if (q) {
-    query = query.or(
-      [
-        `contract_no.ilike.%${q}%`,
-        `farmer_first_name.ilike.%${q}%`,
-        `farmer_last_name.ilike.%${q}%`,
-        `submitter_display_name.ilike.%${q}%`,
-      ].join(","),
-    );
+  const rows: Heart4ExportRow[] = [];
+  for (let offset = 0; offset < HARD_CAP; offset += PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(offset, offset + PAGE_SIZE - 1);
+    if (error) {
+      return NextResponse.json({ ok: false, error: "DB_ERROR", detail: error.message }, { status: 500 });
+    }
+    const chunk = (data ?? []) as Heart4ExportRow[];
+    if (chunk.length === 0) break;
+    rows.push(...chunk);
+    if (chunk.length < PAGE_SIZE) break;
   }
-
-  const { data, error } = await query;
-  if (error) {
-    return NextResponse.json({ ok: false, error: "DB_ERROR", detail: error.message }, { status: 500 });
-  }
-
-  const rows = (data ?? []) as Heart4ExportRow[];
 
   const buf = await buildHeart4RoomsExcelBuffer(rows, map);
   const ts = new Date().toISOString().replaceAll(":", "-");
