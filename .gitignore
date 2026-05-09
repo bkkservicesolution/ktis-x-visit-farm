@@ -24,6 +24,9 @@
 .DS_Store
 *.pem
 
+# Local export scratch (jobs are memory-only now; ignore leftovers)
+.tmp/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
