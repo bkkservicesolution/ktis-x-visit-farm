@@ -1163,12 +1163,19 @@ export function Heart4RoomsAdminClient() {
                     </div>
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-foreground">กำลัง Export</div>
-                      <div className="mt-1 text-xs text-muted">
-                        {exportApiMode === "sync" && exportStatus === "running"
-                          ? `กำลังสร้างไฟล์บนเซิร์ฟเวอร์ — ในโหมดออนไลน์จะไม่ฝังรูปในเซลล์เป็นค่าเริ่มต้น (ยังมีลิงก์รูป) เพื่อไม่ให้ค้าง/หมดเวลา`
-                          : exportTotal > 0
-                            ? `${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ`
-                            : "กำลังเตรียมข้อมูล…"}
+                      <div className="mt-1 space-y-1 text-xs text-muted">
+                        {exportApiMode === "sync" && exportStatus === "running" ? (
+                          <>
+                            <div className="text-foreground">กำลังสร้างไฟล์ Excel บนเซิร์ฟเวอร์…</div>
+                            <div className="leading-snug">
+                              โหมดออนไลน์ (Vercel) ไม่ฝังรูปในเซลล์เป็นค่าเริ่มต้น — ยังมีลิงก์ไปยังรูป — เพื่อลดโอกาสค้างหรือหมดเวลา
+                            </div>
+                          </>
+                        ) : exportTotal > 0 ? (
+                          <div>{`${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ`}</div>
+                        ) : (
+                          <div>กำลังเตรียมข้อมูล…</div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1181,13 +1188,18 @@ export function Heart4RoomsAdminClient() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="h-3 overflow-hidden rounded-full border border-border bg-background">
-                        <div
-                          className="h-full rounded-full bg-foreground transition-[width] duration-200"
-                          style={{
-                            width: exportTotal > 0 ? `${exportPercent}%` : "0%",
-                          }}
-                        />
+                      <div className="relative h-3 overflow-hidden rounded-full border border-border bg-background">
+                        {exportTotal > 0 ? (
+                          <div
+                            className="h-full rounded-full bg-foreground transition-[width] duration-200"
+                            style={{ width: `${exportPercent}%` }}
+                          />
+                        ) : exportStatus === "running" || exportStatus === "pending" ? (
+                          <div
+                            className="absolute inset-y-0 left-0 w-[42%] rounded-full bg-foreground/75 motion-safe:animate-[h4r-export-indeterminate_1.15s_ease-in-out_infinite]"
+                            aria-hidden
+                          />
+                        ) : null}
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted">
                         <div>
