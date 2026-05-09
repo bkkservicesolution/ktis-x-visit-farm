@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import type { LabelMap } from "@/lib/heart4roomsExport";
 import { buildHeart4RoomsExcelBufferWithProgress, type Heart4ExportRow } from "@/lib/heart4roomsExport";
 import { KTISX_ROLE_COOKIE, type KtisxRole } from "@/lib/authConstants";
+import { resolveHeart4RoomsEmbedImages } from "@/lib/heart4roomsExportEmbed";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   createHeart4RoomsExportJob,
@@ -115,12 +116,18 @@ export async function POST(req: Request) {
       }
       markHeart4RoomsExportJobRunning(job.id, rows.length);
 
-      const buf = await buildHeart4RoomsExcelBufferWithProgress(rows, map, (p) => {
-        if (isHeart4RoomsExportJobCancelled(job.id)) {
-          throw new Error("CANCELLED");
-        }
-        updateHeart4RoomsExportJobProgress(job.id, p.done, p.total);
-      });
+      const embedPhotos = resolveHeart4RoomsEmbedImages(undefined);
+      const buf = await buildHeart4RoomsExcelBufferWithProgress(
+        rows,
+        map,
+        (p) => {
+          if (isHeart4RoomsExportJobCancelled(job.id)) {
+            throw new Error("CANCELLED");
+          }
+          updateHeart4RoomsExportJobProgress(job.id, p.done, p.total);
+        },
+        { embedImages: embedPhotos },
+      );
 
       const ts = new Date().toISOString().replaceAll(":", "-");
       const filename = `ktisx_heart4rooms_${ts}.xlsx`;

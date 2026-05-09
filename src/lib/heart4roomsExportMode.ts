@@ -1,7 +1,7 @@
 export type Heart4RoomsExportApiMode = "sync" | "job";
 
 /**
- * Heart4Rooms export uses in-memory + local disk jobs for SSE progress.
+ * Heart4Rooms export jobs use in-memory storage for SSE progress (same Node process).
  * On Vercel (and most multi-instance serverless hosts), POST /jobs and GET /events
  * often hit different instances → job lookup 404 → "เชื่อมต่อสถานะ export ไม่สำเร็จ".
  *

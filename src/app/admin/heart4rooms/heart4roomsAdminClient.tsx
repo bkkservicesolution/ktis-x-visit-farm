@@ -281,7 +281,28 @@ export function Heart4RoomsAdminClient() {
       if (to) sp.set("to", to);
       if (ids.length) sp.set("ids", ids.join(","));
 
-      const res = await fetch(`/api/surveys/heart4rooms/export?${sp.toString()}`, { method: "GET" });
+      const ctl = new AbortController();
+      const hangTimer = window.setTimeout(() => ctl.abort(), 315_000);
+
+      let res: Response;
+      try {
+        res = await fetch(`/api/surveys/heart4rooms/export?${sp.toString()}`, {
+          method: "GET",
+          signal: ctl.signal,
+        });
+      } catch (err) {
+        clearTimeout(hangTimer);
+        const aborted = err instanceof DOMException ? err.name === "AbortError" : (err as Error)?.name === "AbortError";
+        setExportError(
+          aborted
+            ? "รอเกิน ~5 นาที ไม่ได้รับไฟล์ (โปรดให้ผู้ดูแลเช็คฟังก์ชัน export ใน Vercel / timeout)"
+            : "โหลดไฟล์ไม่สำเร็จ (เครือข่ายหรือเซิร์ฟเวอร์)",
+        );
+        setExportStatus("error");
+        return;
+      }
+      clearTimeout(hangTimer);
+
       if (!res.ok) {
         const j = (await res.json().catch(() => null)) as { error?: string; detail?: unknown } | null;
         const detail =
@@ -1127,7 +1148,7 @@ export function Heart4RoomsAdminClient() {
                       <div className="text-sm font-semibold text-foreground">กำลัง Export</div>
                       <div className="mt-1 text-xs text-muted">
                         {exportApiMode === "sync" && exportStatus === "running"
-                          ? `กำลังสร้างไฟล์บนเซิร์ฟเวอร์ (ข้อมูลจำนวนมากอาจใช้เวลาหลายนาที)…`
+                          ? `กำลังสร้างไฟล์บนเซิร์ฟเวอร์ — ในโหมดออนไลน์จะไม่ฝังรูปในเซลล์เป็นค่าเริ่มต้น (ยังมีลิงก์รูป) เพื่อไม่ให้ค้าง/หมดเวลา`
                           : exportTotal > 0
                             ? `${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ`
                             : "กำลังเตรียมข้อมูล…"}

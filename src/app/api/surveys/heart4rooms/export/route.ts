@@ -5,7 +5,13 @@ import { NextResponse } from "next/server";
 import type { LabelMap } from "@/lib/heart4roomsExport";
 import { buildHeart4RoomsExcelBuffer, type Heart4ExportRow } from "@/lib/heart4roomsExport";
 import { KTISX_ROLE_COOKIE, type KtisxRole } from "@/lib/authConstants";
+import { resolveHeart4RoomsEmbedImages } from "@/lib/heart4roomsExportEmbed";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+/** Vercel: allow large sync exports within plan limits (set lower on Hobby via dashboard). */
+export const maxDuration = 300;
+
+export const runtime = "nodejs";
 
 async function getRole(): Promise<KtisxRole | null> {
   const v = (await cookies()).get(KTISX_ROLE_COOKIE)?.value;
@@ -27,6 +33,7 @@ export async function GET(req: Request) {
   const map = await loadLabelMap();
 
   const url = new URL(req.url);
+  const embedPhotos = resolveHeart4RoomsEmbedImages(url.searchParams);
   const q = (url.searchParams.get("q") ?? "").trim();
   const promoter_id = (url.searchParams.get("promoter_id") ?? "").trim();
   const from = (url.searchParams.get("from") ?? "").trim();
@@ -76,7 +83,7 @@ export async function GET(req: Request) {
     if (chunk.length < PAGE_SIZE) break;
   }
 
-  const buf = await buildHeart4RoomsExcelBuffer(rows, map);
+  const buf = await buildHeart4RoomsExcelBuffer(rows, map, { embedImages: embedPhotos });
   const ts = new Date().toISOString().replaceAll(":", "-");
 
   return new Response(new Uint8Array(buf), {
