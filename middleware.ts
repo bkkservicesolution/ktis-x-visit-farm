@@ -15,7 +15,7 @@ export function middleware(req: NextRequest) {
   const isHome = pathname === "/home" || pathname.startsWith("/home/");
   const isSurveys = pathname.startsWith("/surveys");
   const isAdmin = pathname.startsWith("/admin");
-  const isAdminDashboard = pathname.startsWith("/admin/dashboard");
+  const isAdminRoot = pathname === "/admin";
 
   if ((isHome || isSurveys) && !role) {
     const url = req.nextUrl.clone();
@@ -29,14 +29,16 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (isAdminDashboard && role !== "admin") {
+  // All admin pages require admin role.
+  // Keep /admin accessible (it may redirect client-side).
+  if (isAdmin && !isAdminRoot && role !== "admin") {
     const url = req.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
   // Allow /admin to be accessible (it may just redirect to dashboard if admin)
-  if (isAdmin && pathname === "/admin") {
+  if (isAdmin && isAdminRoot) {
     return NextResponse.next();
   }
 

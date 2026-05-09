@@ -46,6 +46,20 @@ export function cleanupHeart4RoomsExportJobs(now = Date.now()) {
   }
 }
 
+function snapshot(job: Heart4RoomsExportJobInternal): Heart4RoomsExportJobSnapshot {
+  return {
+    id: job.id,
+    status: job.status,
+    progress: job.progress,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    expiresAt: job.expiresAt,
+    filename: job.filename,
+    error: job.error,
+  };
+}
+
+/** In-memory only (no `.tmp`/disk). Survives for one long-lived Node process (e.g. local `next dev`). */
 export function createHeart4RoomsExportJob(): Heart4RoomsExportJobSnapshot {
   cleanupHeart4RoomsExportJobs();
   const id = crypto.randomUUID();
@@ -65,15 +79,16 @@ export function createHeart4RoomsExportJob(): Heart4RoomsExportJobSnapshot {
 export function getHeart4RoomsExportJob(id: string): Heart4RoomsExportJobSnapshot | null {
   cleanupHeart4RoomsExportJobs();
   const job = store().get(id);
-  if (!job) return null;
-  return snapshot(job);
+  return job ? snapshot(job) : null;
 }
 
 export function getHeart4RoomsExportJobBuffer(id: string): { filename: string; buffer: Buffer } | null {
   cleanupHeart4RoomsExportJobs();
   const job = store().get(id);
-  if (!job || job.status !== "done" || !job.buffer || !job.filename) return null;
-  return { filename: job.filename, buffer: job.buffer };
+  if (job?.status === "done" && job.buffer && job.filename) {
+    return { filename: job.filename, buffer: job.buffer };
+  }
+  return null;
 }
 
 export function markHeart4RoomsExportJobRunning(id: string, total: number) {
@@ -137,17 +152,3 @@ export function isHeart4RoomsExportJobCancelled(id: string): boolean {
   const job = store().get(id);
   return job?.status === "cancelled";
 }
-
-function snapshot(job: Heart4RoomsExportJobInternal): Heart4RoomsExportJobSnapshot {
-  return {
-    id: job.id,
-    status: job.status,
-    progress: job.progress,
-    createdAt: job.createdAt,
-    updatedAt: job.updatedAt,
-    expiresAt: job.expiresAt,
-    filename: job.filename,
-    error: job.error,
-  };
-}
-
