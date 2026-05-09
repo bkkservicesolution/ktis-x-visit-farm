@@ -135,13 +135,10 @@ export function Heart4RoomsAdminClient() {
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportStarting, setExportStarting] = useState(false);
-  const [exportJobId, setExportJobId] = useState<string | null>(null);
-  const [exportDone, setExportDone] = useState(0);
+  const [exportRunning, setExportRunning] = useState(false);
   const [exportTotal, setExportTotal] = useState(0);
-  const [exportStatus, setExportStatus] = useState<"idle" | "pending" | "running" | "done" | "cancelled" | "error">("idle");
   const [exportError, setExportError] = useState<string | null>(null);
-  const exportEsRef = useRef<EventSource | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
   const exportStartLockRef = useRef(false);
   const [exportNotice, setExportNotice] = useState<{ open: boolean; text: string; tone: "ok" | "error" }>({
     open: false,
@@ -163,60 +160,39 @@ export function Heart4RoomsAdminClient() {
 
   const selectedCount = useMemo(() => Object.values(selectedIds).filter(Boolean).length, [selectedIds]);
 
-  const exportLocked = exportStarting || exportStatus === "pending" || exportStatus === "running";
+  const exportLocked = exportRunning;
 
-  const exportPercent = useMemo(() => {
-    if (exportTotal <= 0) return 0;
-    return Math.max(0, Math.min(100, Math.floor((exportDone / exportTotal) * 100)));
-  }, [exportDone, exportTotal]);
-
-  async function downloadExportFile(jobId: string, filename: string | null) {
-    const res = await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/file`, { method: "GET" });
-    if (!res.ok) throw new Error("DOWNLOAD_FAILED");
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    try {
-      const a = document.createElement("a");
-      a.href = url;
-      if (filename) a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } finally {
-      URL.revokeObjectURL(url);
+  function filenameFromContentDisposition(header: string | null): string | null {
+    if (!header) return null;
+    const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header);
+    if (utf8?.[1]) {
+      try {
+        return decodeURIComponent(utf8[1].trim().replace(/^"|"$/g, ""));
+      } catch {
+        // fall through to plain filename
+      }
     }
+    const plain = /filename="?([^";]+)"?/i.exec(header);
+    return plain?.[1] ?? null;
   }
 
-  async function cancelExport() {
-    if (!exportJobId) return;
-    try {
-      await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(exportJobId)}/cancel`, { method: "POST" });
-    } finally {
-      exportEsRef.current?.close();
-      exportEsRef.current = null;
-      setExportStatus("cancelled");
-      setExportError(null);
-      setExportJobId(null);
-      setExportOpen(false);
-      setExportNotice({
-        open: true,
-        tone: "ok",
-        text: exportTotal > 0 ? `ยกเลิกการดาวน์โหลดแล้ว (${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ)` : "ยกเลิกการดาวน์โหลดแล้ว",
-      });
-    }
+  function cancelExport() {
+    exportAbortRef.current?.abort();
+    exportAbortRef.current = null;
+    setExportRunning(false);
+    setExportError(null);
+    setExportOpen(false);
+    setExportNotice({
+      open: true,
+      tone: "ok",
+      text: "ยกเลิกการดาวน์โหลดแล้ว",
+    });
   }
 
   async function startExport(kind: "all" | "selected") {
     if (exportLocked) return;
     if (exportStartLockRef.current) return;
     exportStartLockRef.current = true;
-    setExportStarting(true);
-    setExportError(null);
-    setExportOpen(true);
-    setExportJobId(null);
-    setExportDone(0);
-    setExportTotal(0);
-    setExportStatus("pending");
 
     const ids =
       kind === "selected"
@@ -225,8 +201,21 @@ export function Heart4RoomsAdminClient() {
             .map(([id]) => id)
         : [];
 
+    const expectedTotal = kind === "selected" ? ids.length : count;
+
+    setExportError(null);
+    setExportOpen(true);
+    setExportRunning(true);
+    setExportTotal(expectedTotal);
+
+    const ctl = new AbortController();
+    exportAbortRef.current = ctl;
+
     try {
-      const res = await fetch("/api/surveys/heart4rooms/export/jobs", {
+      // Direct synchronous download. The job-based flow (POST jobs + SSE +
+      // GET file) cannot run on Vercel serverless: each call may hit a
+      // different lambda instance and the in-memory job map is lost.
+      const res = await fetch("/api/surveys/heart4rooms/export", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -234,92 +223,54 @@ export function Heart4RoomsAdminClient() {
           promoter_id: promoterId.trim(),
           from,
           to,
-          ids: ids.join(","),
+          ids,
         }),
+        signal: ctl.signal,
+        cache: "no-store",
       });
 
-      const json = (await res.json().catch(() => null)) as { ok?: boolean; jobId?: string; error?: string } | null;
-      if (!res.ok || !json || json.ok !== true || !json.jobId) {
-        setExportError("เริ่ม export ไม่สำเร็จ");
-        setExportStatus("error");
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `HTTP ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const filename =
+        filenameFromContentDisposition(res.headers.get("content-disposition")) ||
+        `ktisx_heart4rooms_${new Date().toISOString().replaceAll(":", "-")}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      try {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+
+      setExportNotice({
+        open: true,
+        tone: "ok",
+        text:
+          expectedTotal > 0
+            ? `ดาวน์โหลด ${expectedTotal.toLocaleString("th-TH")} รายการเสร็จสิ้น`
+            : "ดาวน์โหลดเสร็จสิ้น",
+      });
+      setExportOpen(false);
+    } catch (err) {
+      if ((err as { name?: string } | null)?.name === "AbortError") {
+        // user-cancel path already cleared state in cancelExport()
         return;
       }
-      setExportJobId(json.jobId);
+      setExportError("ดาวน์โหลดไม่สำเร็จ (เซิร์ฟเวอร์ตอบกลับไม่สำเร็จ)");
     } finally {
-      setExportStarting(false);
+      if (exportAbortRef.current === ctl) exportAbortRef.current = null;
+      setExportRunning(false);
       exportStartLockRef.current = false;
     }
   }
-
-  useEffect(() => {
-    if (!exportJobId) return;
-
-    exportEsRef.current?.close();
-
-    const es = new EventSource(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(exportJobId)}/events`);
-    exportEsRef.current = es;
-
-    const onProgress = (e: MessageEvent<string>) => {
-      try {
-        const data = JSON.parse(e.data) as {
-          status?: "pending" | "running" | "done" | "cancelled" | "error";
-          done?: number;
-          total?: number;
-          error?: string | null;
-          filename?: string | null;
-        };
-        if (data.status) setExportStatus(data.status);
-        if (typeof data.total === "number") setExportTotal(data.total);
-        if (typeof data.done === "number") setExportDone(data.done);
-        if (data.status === "error") setExportError(data.error || "Export ล้มเหลว");
-        if (data.status === "cancelled") {
-          es.close();
-          exportEsRef.current = null;
-          setExportOpen(false);
-        }
-        if (data.status === "done") {
-          es.close();
-          exportEsRef.current = null;
-          const total = typeof data.total === "number" ? data.total : exportTotal;
-          const filename = typeof data.filename === "string" ? data.filename : null;
-          void (async () => {
-            try {
-              await downloadExportFile(exportJobId, filename);
-              setExportNotice({
-                open: true,
-                tone: "ok",
-                text: total > 0 ? `ดาวน์โหลด ${total.toLocaleString("th-TH")} รายการเสร็จสิ้น` : "ดาวน์โหลดเสร็จสิ้น",
-              });
-            } catch {
-              setExportNotice({ open: true, tone: "error", text: "ดาวน์โหลดไม่สำเร็จ (โปรดลองอีกครั้ง)" });
-            } finally {
-              setExportJobId(null);
-              setExportOpen(false);
-              setExportStatus("idle");
-            }
-          })();
-        }
-      } catch {
-        // ignore parse errors
-      }
-    };
-
-    const onError = () => {
-      setExportError("เชื่อมต่อสถานะ export ไม่สำเร็จ");
-      setExportStatus("error");
-      es.close();
-      exportEsRef.current = null;
-    };
-
-    es.addEventListener("progress", onProgress as EventListener);
-    es.onerror = onError;
-
-    return () => {
-      es.removeEventListener("progress", onProgress as EventListener);
-      es.close();
-      if (exportEsRef.current === es) exportEsRef.current = null;
-    };
-  }, [exportJobId, exportTotal]);
 
   async function load(pageOverride?: number) {
     setPending(true);
@@ -1013,8 +964,8 @@ export function Heart4RoomsAdminClient() {
                       <div className="text-sm font-semibold text-foreground">กำลัง Export</div>
                       <div className="mt-1 text-xs text-muted">
                         {exportTotal > 0
-                          ? `${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ`
-                          : "กำลังเตรียมข้อมูล…"}
+                          ? `${exportTotal.toLocaleString("th-TH")} รายการ — กำลังเตรียมไฟล์…`
+                          : "กำลังเตรียมไฟล์…"}
                       </div>
                     </div>
                   </div>
@@ -1028,37 +979,15 @@ export function Heart4RoomsAdminClient() {
                   ) : (
                     <div className="space-y-3">
                       <div className="h-3 overflow-hidden rounded-full border border-border bg-background">
-                        <div
-                          className="h-full rounded-full bg-foreground transition-[width] duration-200"
-                          style={{
-                            width: exportTotal > 0 ? `${exportPercent}%` : "0%",
-                          }}
-                        />
+                        <div className="h-full w-1/3 animate-pulse rounded-full bg-foreground" />
                       </div>
-                      <div className="flex items-center justify-between text-xs text-muted">
-                        <div>
-                          {exportTotal > 0
-                            ? `${exportPercent}%`
-                            : exportStatus === "pending"
-                              ? "กำลังเริ่ม…"
-                              : exportStatus === "idle"
-                                ? "กำลังเริ่ม…"
-                                : "กำลังทำงาน…"}
-                        </div>
-                        <div>
-                          {exportStatus === "done"
-                            ? "เสร็จแล้ว กำลังดาวน์โหลด…"
-                            : exportStatus === "running"
-                              ? "กำลังสร้างไฟล์…"
-                              : exportStatus === "pending"
-                                ? "กำลังเตรียม…"
-                                : ""}
-                        </div>
+                      <div className="text-xs text-muted">
+                        เซิร์ฟเวอร์กำลังโหลดข้อมูล + บีบรูป + สร้างไฟล์ Excel ระหว่างนี้โปรดอย่าปิดหน้านี้ (อาจใช้เวลาหลายนาทีสำหรับชุดข้อมูลขนาดใหญ่)
                       </div>
                       <button
                         type="button"
-                        disabled={!exportJobId || !exportLocked}
-                        onClick={() => void cancelExport()}
+                        disabled={!exportRunning}
+                        onClick={() => cancelExport()}
                         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
