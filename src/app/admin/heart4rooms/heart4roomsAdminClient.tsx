@@ -114,6 +114,13 @@ function formatDate(iso: string): string {
   return d.toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
 }
 
+/**
+ * คง arity ของ dependency array ของ useEffect SSE เป็น 2 ช่อง (เดิม [jobId, total])
+ * เพื่อหลีกเลี่ยง Fast Refresh ฟ้อง "dependency array changed size"
+ * — primitive คงที่ไม่ทำให้ effect รันใหม่เมื่อ total เปลี่ยน (ไม่ reconnect SSE ซ้ำ)
+ */
+const HEART4_EXPORT_SSE_DEPS_PAD = 0;
+
 export function Heart4RoomsAdminClient() {
   const [q, setQ] = useState("");
   const [promoterId, setPromoterId] = useState("");
@@ -143,6 +150,10 @@ export function Heart4RoomsAdminClient() {
   const [exportError, setExportError] = useState<string | null>(null);
   const exportEsRef = useRef<EventSource | null>(null);
   const exportStartLockRef = useRef(false);
+  /** ลด stale closure ใน SSE เมื่อเอา exportTotal ออกจาก deps ของ useEffect */
+  const exportTotalRef = useRef(0);
+  /** กันโหลดซ้ำเมื่อได้ event done ซ้ำ (Strict Mode / reconnect) */
+  const exportDownloadHandledRef = useRef<string | null>(null);
   const [exportNotice, setExportNotice] = useState<{ open: boolean; text: string; tone: "ok" | "error" }>({
     open: false,
     text: "",
@@ -170,21 +181,18 @@ export function Heart4RoomsAdminClient() {
     return Math.max(0, Math.min(100, Math.floor((exportDone / exportTotal) * 100)));
   }, [exportDone, exportTotal]);
 
-  async function downloadExportFile(jobId: string, filename: string | null) {
-    const res = await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/file`, { method: "GET" });
-    if (!res.ok) throw new Error("DOWNLOAD_FAILED");
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    try {
-      const a = document.createElement("a");
-      a.href = url;
-      if (filename) a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+  exportTotalRef.current = exportTotal;
+
+  /** ให้เบราว์เซอร์ดาวน์โหลดแบบสตรีม — ไม่โหลดทั้งไฟล์เข้า RAM เป็น Blob (ลดโอกาสพังเมื่อไฟล์ใหญ่/ใช้เวลานาน แม้ Network ขึ้น 200) */
+  function triggerExportFileDownload(jobId: string, filename: string | null) {
+    const path = `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/file`;
+    const a = document.createElement("a");
+    a.href = path;
+    if (filename) a.download = filename;
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   async function cancelExport() {
@@ -210,6 +218,7 @@ export function Heart4RoomsAdminClient() {
     if (exportLocked) return;
     if (exportStartLockRef.current) return;
     exportStartLockRef.current = true;
+    exportDownloadHandledRef.current = null;
     setExportStarting(true);
     setExportError(null);
     setExportOpen(true);
@@ -278,26 +287,27 @@ export function Heart4RoomsAdminClient() {
           setExportOpen(false);
         }
         if (data.status === "done") {
+          const jid = exportJobId;
+          if (!jid || exportDownloadHandledRef.current === jid) return;
+          exportDownloadHandledRef.current = jid;
           es.close();
           exportEsRef.current = null;
-          const total = typeof data.total === "number" ? data.total : exportTotal;
+          const total = typeof data.total === "number" ? data.total : exportTotalRef.current;
           const filename = typeof data.filename === "string" ? data.filename : null;
-          void (async () => {
-            try {
-              await downloadExportFile(exportJobId, filename);
-              setExportNotice({
-                open: true,
-                tone: "ok",
-                text: total > 0 ? `ดาวน์โหลด ${total.toLocaleString("th-TH")} รายการเสร็จสิ้น` : "ดาวน์โหลดเสร็จสิ้น",
-              });
-            } catch {
-              setExportNotice({ open: true, tone: "error", text: "ดาวน์โหลดไม่สำเร็จ (โปรดลองอีกครั้ง)" });
-            } finally {
-              setExportJobId(null);
-              setExportOpen(false);
-              setExportStatus("idle");
-            }
-          })();
+          try {
+            triggerExportFileDownload(jid, filename);
+            setExportNotice({
+              open: true,
+              tone: "ok",
+              text: total > 0 ? `ดาวน์โหลด ${total.toLocaleString("th-TH")} รายการเสร็จสิ้น` : "ดาวน์โหลดเสร็จสิ้น",
+            });
+          } catch {
+            setExportNotice({ open: true, tone: "error", text: "ดาวน์โหลดไม่สำเร็จ (โปรดลองอีกครั้ง)" });
+          } finally {
+            setExportJobId(null);
+            setExportOpen(false);
+            setExportStatus("idle");
+          }
         }
       } catch {
         // ignore parse errors
@@ -319,7 +329,7 @@ export function Heart4RoomsAdminClient() {
       es.close();
       if (exportEsRef.current === es) exportEsRef.current = null;
     };
-  }, [exportJobId, exportTotal]);
+  }, [exportJobId, HEART4_EXPORT_SSE_DEPS_PAD]);
 
   async function load(pageOverride?: number) {
     setPending(true);

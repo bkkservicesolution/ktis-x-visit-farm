@@ -3,9 +3,9 @@ import path from "node:path";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { LabelMap } from "@/lib/heart4roomsExport";
-import { buildHeart4RoomsExcelBufferWithProgress, type Heart4ExportRow } from "@/lib/heart4roomsExport";
+import { buildHeart4RoomsExcelBufferWithProgress } from "@/lib/heart4roomsExport";
 import { KTISX_ROLE_COOKIE, type KtisxRole } from "@/lib/authConstants";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchAllHeart4RoomsSurveysForExport } from "@/lib/fetchHeart4RoomsSurveysForExport";
 import {
   createHeart4RoomsExportJob,
   isHeart4RoomsExportJobCancelled,
@@ -69,35 +69,17 @@ export async function POST(req: Request) {
       }
       const map = await loadLabelMap();
 
-      let query = supabaseAdmin()
-        .from("heart4rooms_surveys")
-        .select(
-          "id,created_at,created_by_username,promoter_id,submitter_display_name,farmer_first_name,farmer_last_name,contract_no,answers,attachments",
-        )
-        .order("created_at", { ascending: false });
-
-      if (ids.length > 0) query = query.in("id", ids);
-      if (promoter_id) query = query.eq("promoter_id", promoter_id);
-      if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) query = query.gte("created_at", `${from}T00:00:00.000Z`);
-      if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) query = query.lte("created_at", `${to}T23:59:59.999Z`);
-      if (q) {
-        query = query.or(
-          [
-            `contract_no.ilike.%${q}%`,
-            `farmer_first_name.ilike.%${q}%`,
-            `farmer_last_name.ilike.%${q}%`,
-            `submitter_display_name.ilike.%${q}%`,
-          ].join(","),
-        );
-      }
-
-      const { data, error } = await query;
-      if (error) {
+      const { rows, error: fetchErr } = await fetchAllHeart4RoomsSurveysForExport({
+        ids,
+        promoter_id,
+        from,
+        to,
+        q,
+      });
+      if (fetchErr) {
         markHeart4RoomsExportJobError(job.id, "DB_ERROR");
         return;
       }
-
-      const rows = (data ?? []) as Heart4ExportRow[];
       markHeart4RoomsExportJobRunning(job.id, rows.length);
 
       const buf = await buildHeart4RoomsExcelBufferWithProgress(rows, map, (p) => {

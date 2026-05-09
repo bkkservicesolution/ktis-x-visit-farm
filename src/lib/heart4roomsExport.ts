@@ -1,4 +1,10 @@
 import ExcelJS from "exceljs";
+import sharp from "sharp";
+import type { Heart4RoomsExportImageOptions, Heart4RoomsExportImagePreset } from "./heart4roomsExportImageOptions";
+import { DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS } from "./heart4roomsExportImageOptions";
+
+export type { Heart4RoomsExportImageOptions, Heart4RoomsExportImagePreset } from "./heart4roomsExportImageOptions";
+export { DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS } from "./heart4roomsExportImageOptions";
 
 export type LabelMap = {
   questions: Record<string, string>;
@@ -23,6 +29,18 @@ export type Heart4RoomsExportProgress = {
   done: number;
   total: number;
 };
+
+/** ขนาดวางรูปเช็คอินใน Excel (`ext`) — เดิม 280×210 */
+const HEART4_EXPORT_CHECKIN_IMAGE_EXT = { width: 200, height: 150 } as const;
+/** ความสูงแถวตามสัดส่วนเดิม (แถวที่มีรูปเคยใช้ 156 เมื่อรูปสูง 210) */
+const HEART4_EXPORT_CHECKIN_ROW_HEIGHT = Math.round((156 * HEART4_EXPORT_CHECKIN_IMAGE_EXT.height) / 210);
+/** พิกเซลด้านยาวสุดของภาพที่ฝัง — ~1.5× ขนาดแสดงใน Excel ให้สัมพันธ์กับ `HEART4_EXPORT_CHECKIN_IMAGE_EXT` */
+const HEART4_EXPORT_CHECKIN_EMBED_MAX_EDGE = Math.round(
+  Math.max(HEART4_EXPORT_CHECKIN_IMAGE_EXT.width, HEART4_EXPORT_CHECKIN_IMAGE_EXT.height) * 1.5,
+);
+
+/** โหลด + บีบรูปเช็คอินพร้อมกันหลาย URL — จำกัดเพื่อไม่ให้โหลดพร้อมกันเกินไป */
+const HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY = 8;
 
 /** Fixes labels where extract-heart4rooms-map.mjs merged keys incorrectly */
 function patchLabelMap(map: LabelMap): LabelMap {
@@ -537,7 +555,100 @@ async function fetchImageBuffer(
   }
 }
 
-export async function buildHeart4RoomsExcelBuffer(rows: Heart4ExportRow[], map: LabelMap): Promise<Buffer> {
+async function shrinkImageForExport(
+  buffer: Buffer,
+  preset: Exclude<Heart4RoomsExportImagePreset, "original">,
+): Promise<{ buffer: Buffer; extension: "jpeg" } | null> {
+  /** compact: ใช้ `HEART4_EXPORT_CHECKIN_EMBED_MAX_EDGE` ผูกกับขนาดวางใน Excel */
+  const cfg =
+    preset === "balanced"
+      ? { maxEdge: 960, quality: 78 }
+      : { maxEdge: HEART4_EXPORT_CHECKIN_EMBED_MAX_EDGE, quality: 74 };
+
+  try {
+    const out = await sharp(buffer)
+      .rotate()
+      .resize({
+        width: cfg.maxEdge,
+        height: cfg.maxEdge,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: cfg.quality, mozjpeg: true })
+      .toBuffer();
+    return { buffer: out, extension: "jpeg" };
+  } catch {
+    return null;
+  }
+}
+
+async function prepareEmbeddedCheckinImage(
+  img: NonNullable<Awaited<ReturnType<typeof fetchImageBuffer>>>,
+  imageOpts: Heart4RoomsExportImageOptions,
+): Promise<{ buffer: Buffer; extension: "jpeg" | "png" | "gif" }> {
+  if (imageOpts.preset === "original") {
+    return { buffer: img.buffer, extension: img.extension };
+  }
+  const shrunk = await shrinkImageForExport(img.buffer, imageOpts.preset);
+  if (shrunk) return shrunk;
+  return { buffer: img.buffer, extension: img.extension };
+}
+
+type EmbeddedCheckinImage = { buffer: Buffer; extension: "jpeg" | "png" | "gif" };
+
+async function runPool<T>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+  if (items.length === 0) return;
+  const workers = Math.max(1, Math.min(concurrency, items.length));
+  let next = 0;
+
+  async function spawn(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      await worker(items[i]!);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workers }, () => spawn()));
+}
+
+/** โหลดและบีบรูปตาม URL แบบจำกัด concurrency — URL ซ้ำในแถวหลายแถวโหลดครั้งเดียว */
+async function prefetchEmbeddedCheckinImagesByUrl(
+  rows: Heart4ExportRow[],
+  imageOpts: Heart4RoomsExportImageOptions,
+  concurrency: number,
+  onProgress?: (p: Heart4RoomsExportProgress) => void,
+): Promise<Map<string, EmbeddedCheckinImage | null>> {
+  const total = rows.length;
+  const rowUrls = rows.map((r) => getCheckinPhotoUrl(r));
+  const rowsPerUrl = new Map<string, number>();
+  for (const url of rowUrls) {
+    if (!url) continue;
+    rowsPerUrl.set(url, (rowsPerUrl.get(url) ?? 0) + 1);
+  }
+
+  let done = rowUrls.filter((u) => !u).length;
+  if (done > 0) onProgress?.({ done, total });
+
+  const uniqueUrls = [...rowsPerUrl.keys()];
+  const embeddedByUrl = new Map<string, EmbeddedCheckinImage | null>();
+
+  await runPool(uniqueUrls, concurrency, async (url) => {
+    const img = await fetchImageBuffer(url);
+    const embedded = img ? await prepareEmbeddedCheckinImage(img, imageOpts) : null;
+    embeddedByUrl.set(url, embedded);
+    done += rowsPerUrl.get(url) ?? 0;
+    onProgress?.({ done, total });
+  });
+
+  return embeddedByUrl;
+}
+
+export async function buildHeart4RoomsExcelBuffer(
+  rows: Heart4ExportRow[],
+  map: LabelMap,
+  imageOpts: Heart4RoomsExportImageOptions = DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS,
+): Promise<Buffer> {
   const patched = patchLabelMap(map);
   const columns = buildExportColumns(patched);
   const imageCol0 = columns.length;
@@ -553,6 +664,12 @@ export async function buildHeart4RoomsExcelBuffer(rows: Heart4ExportRow[], map: 
     { header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 },
   ];
 
+  const embeddedByUrl = await prefetchEmbeddedCheckinImagesByUrl(
+    rows,
+    imageOpts,
+    HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY,
+  );
+
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     const excelRowIndex = i + 2;
@@ -560,19 +677,19 @@ export async function buildHeart4RoomsExcelBuffer(rows: Heart4ExportRow[], map: 
     const url = getCheckinPhotoUrl(row);
     const rowCells = [...cellTexts, ""];
     const added = ws.addRow(rowCells);
-    if (url) added.height = 156;
+    if (url) added.height = HEART4_EXPORT_CHECKIN_ROW_HEIGHT;
 
     if (url) {
-      const img = await fetchImageBuffer(url);
-      if (img) {
+      const embedded = embeddedByUrl.get(url);
+      if (embedded) {
         const imageId = wb.addImage({
           // exceljs expects Node Buffer; TS 5 buffer typing differs from Response buffers
-          buffer: img.buffer as unknown as ExcelJS.Buffer,
-          extension: img.extension,
+          buffer: embedded.buffer as unknown as ExcelJS.Buffer,
+          extension: embedded.extension,
         });
         ws.addImage(imageId, {
           tl: { col: imageCol0, row: excelRowIndex - 1 },
-          ext: { width: 280, height: 210 },
+          ext: { ...HEART4_EXPORT_CHECKIN_IMAGE_EXT },
         });
       }
     }
@@ -595,6 +712,7 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
   rows: Heart4ExportRow[],
   map: LabelMap,
   onProgress?: (p: Heart4RoomsExportProgress) => void,
+  imageOpts: Heart4RoomsExportImageOptions = DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS,
 ): Promise<Buffer> {
   const patched = patchLabelMap(map);
   const columns = buildExportColumns(patched);
@@ -611,7 +729,12 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
     { header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 },
   ];
 
-  const total = rows.length;
+  const embeddedByUrl = await prefetchEmbeddedCheckinImagesByUrl(
+    rows,
+    imageOpts,
+    HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY,
+    onProgress,
+  );
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
@@ -620,18 +743,18 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
     const url = getCheckinPhotoUrl(row);
     const rowCells = [...cellTexts, ""];
     const added = ws.addRow(rowCells);
-    if (url) added.height = 156;
+    if (url) added.height = HEART4_EXPORT_CHECKIN_ROW_HEIGHT;
 
     if (url) {
-      const img = await fetchImageBuffer(url);
-      if (img) {
+      const embedded = embeddedByUrl.get(url);
+      if (embedded) {
         const imageId = wb.addImage({
-          buffer: img.buffer as unknown as ExcelJS.Buffer,
-          extension: img.extension,
+          buffer: embedded.buffer as unknown as ExcelJS.Buffer,
+          extension: embedded.extension,
         });
         ws.addImage(imageId, {
           tl: { col: imageCol0, row: excelRowIndex - 1 },
-          ext: { width: 280, height: 210 },
+          ext: { ...HEART4_EXPORT_CHECKIN_IMAGE_EXT },
         });
       }
     }
@@ -640,8 +763,6 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
       const cell = ws.getCell(excelRowIndex, c);
       cell.alignment = { vertical: "top", wrapText: true };
     }
-
-    onProgress?.({ done: i + 1, total });
   }
 
   const headerRow = ws.getRow(1);
