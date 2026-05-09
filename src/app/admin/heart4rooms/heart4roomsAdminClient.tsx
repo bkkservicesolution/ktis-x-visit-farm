@@ -4,9 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Heart4SurveySteps, type Heart4SurveyStepsProps } from "@/app/surveys/heart4rooms/heart4SurveySteps";
 
-/** Stable slot so the SSE `useEffect` deps stay fixed-length without subscribing to `exportTotal`. */
-const HEART4_EXPORT_SSE_DEPS_PAD = false as const;
-
 type Row = {
   id: string;
   created_by_username: string | null;
@@ -117,6 +114,9 @@ function formatDate(iso: string): string {
   return d.toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** ไม่ใช้ ref ใน component เพื่อไม่ให้จำนวน hook เปลี่ยนแล้ว Fast Refresh สับสนกับ useEffect เดิม */
+let lastHeart4ExportDownloadJobId: string | null = null;
+
 export function Heart4RoomsAdminClient() {
   const [q, setQ] = useState("");
   const [promoterId, setPromoterId] = useState("");
@@ -146,16 +146,11 @@ export function Heart4RoomsAdminClient() {
   const [exportError, setExportError] = useState<string | null>(null);
   const exportEsRef = useRef<EventSource | null>(null);
   const exportStartLockRef = useRef(false);
-  const exportTotalRef = useRef(0);
-  const exportDownloadHandledRef = useRef(false);
   const [exportNotice, setExportNotice] = useState<{ open: boolean; text: string; tone: "ok" | "error" }>({
     open: false,
     text: "",
     tone: "ok",
   });
-
-  /** `null` until loaded from server (Vercel uses sync; local dev uses job+SSE). */
-  const [exportApiMode, setExportApiMode] = useState<"sync" | "job" | null>(null);
 
   const [dialogMode, setDialogMode] = useState<"view" | "edit">("view");
   const [savePending, setSavePending] = useState(false);
@@ -173,70 +168,21 @@ export function Heart4RoomsAdminClient() {
 
   const exportLocked = exportStarting || exportStatus === "pending" || exportStatus === "running";
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/surveys/heart4rooms/export/settings")
-      .then((r) => r.json().catch(() => null))
-      .then((j: { mode?: string } | null) => {
-        if (cancelled) return;
-        setExportApiMode(j?.mode === "sync" ? "sync" : "job");
-      })
-      .catch(() => {
-        if (!cancelled) setExportApiMode("job");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const exportPercent = useMemo(() => {
     if (exportTotal <= 0) return 0;
     return Math.max(0, Math.min(100, Math.floor((exportDone / exportTotal) * 100)));
   }, [exportDone, exportTotal]);
 
-  async function sleep(ms: number) {
-    await new Promise((r) => setTimeout(r, ms));
-  }
-
-  async function downloadExportFile(jobId: string, filename: string | null) {
-    const fileEndpoint = `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/file`;
-
-    // The export job writes the XLSX asynchronously; on some environments the
-    // job may be marked done slightly before the file becomes readable.
-    // If the API returns 202 (NOT_READY), wait briefly and retry.
-    let res: Response | null = null;
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      res = await fetch(fileEndpoint, { method: "GET" });
-      if (res.status === 202) {
-        await res.arrayBuffer().catch(() => undefined);
-        await sleep(250);
-        continue;
-      }
-      break;
-    }
-    if (!res || !res.ok) {
-      let detail = "";
-      try {
-        const j = (await res?.json().catch(() => null)) as { error?: string; status?: string } | null;
-        if (j?.error) detail = j.status ? `${j.error} (${j.status})` : j.error;
-      } catch {
-        // ignore
-      }
-      throw new Error(detail ? `DOWNLOAD_FAILED:${detail}` : "DOWNLOAD_FAILED");
-    }
-
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    try {
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      if (filename) a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } finally {
-      URL.revokeObjectURL(blobUrl);
-    }
+  /** ให้เบราว์เซอร์ดาวน์โหลดแบบสตรีม — ไม่โหลดทั้งไฟล์เข้า RAM เป็น Blob (ลดโอกาสพังเมื่อไฟล์ใหญ่/ใช้เวลานาน แม้ Network ขึ้น 200) */
+  function triggerExportFileDownload(jobId: string, filename: string | null) {
+    const path = `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/file`;
+    const a = document.createElement("a");
+    a.href = path;
+    if (filename) a.download = filename;
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   async function cancelExport() {
@@ -261,7 +207,15 @@ export function Heart4RoomsAdminClient() {
   async function startExport(kind: "all" | "selected") {
     if (exportLocked) return;
     if (exportStartLockRef.current) return;
-    if (exportApiMode === null) return;
+    exportStartLockRef.current = true;
+    lastHeart4ExportDownloadJobId = null;
+    setExportStarting(true);
+    setExportError(null);
+    setExportOpen(true);
+    setExportJobId(null);
+    setExportDone(0);
+    setExportTotal(0);
+    setExportStatus("pending");
 
     const ids =
       kind === "selected"
@@ -270,107 +224,7 @@ export function Heart4RoomsAdminClient() {
             .map(([id]) => id)
         : [];
 
-    if (kind === "selected" && ids.length === 0) return;
-
-    exportStartLockRef.current = true;
-    setExportStarting(true);
-    setExportError(null);
-    setExportOpen(true);
-    setExportJobId(null);
-    setExportDone(0);
-    setExportTotal(0);
-    exportTotalRef.current = 0;
-    setExportStatus("pending");
-
-    async function syncExportDownload() {
-      setExportStatus("running");
-      const sp = new URLSearchParams();
-      if (q.trim()) sp.set("q", q.trim());
-      if (promoterId.trim()) sp.set("promoter_id", promoterId.trim());
-      if (from) sp.set("from", from);
-      if (to) sp.set("to", to);
-      if (ids.length) sp.set("ids", ids.join(","));
-
-      const ctl = new AbortController();
-      const hangTimer = window.setTimeout(() => ctl.abort(), 315_000);
-
-      let res: Response;
-      try {
-        res = await fetch(`/api/surveys/heart4rooms/export?${sp.toString()}`, {
-          method: "GET",
-          signal: ctl.signal,
-        });
-      } catch (err) {
-        clearTimeout(hangTimer);
-        const aborted = err instanceof DOMException ? err.name === "AbortError" : (err as Error)?.name === "AbortError";
-        setExportError(
-          aborted
-            ? "รอเกิน ~5 นาที ไม่ได้รับไฟล์ (โปรดให้ผู้ดูแลเช็คฟังก์ชัน export ใน Vercel / timeout)"
-            : "โหลดไฟล์ไม่สำเร็จ (เครือข่ายหรือเซิร์ฟเวอร์)",
-        );
-        setExportStatus("error");
-        return;
-      }
-      clearTimeout(hangTimer);
-
-      if (!res.ok) {
-        const j = (await res.json().catch(() => null)) as { error?: string; detail?: unknown } | null;
-        const detail =
-          typeof j?.detail === "string"
-            ? j.detail
-            : j?.detail && typeof j.detail === "object"
-              ? JSON.stringify(j.detail)
-              : "";
-        const msg = [j?.error, detail].filter(Boolean).join(": ") || `HTTP ${res.status}`;
-        setExportError(`Export ไม่สำเร็จ (${msg})`);
-        setExportStatus("error");
-        return;
-      }
-
-      const cd = res.headers.get("content-disposition");
-      let filename: string | null = null;
-      if (cd) {
-        const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
-        const plain = cd.match(/filename="([^"]+)"/i);
-        const raw = (star?.[1] ?? plain?.[1] ?? "").trim();
-        if (raw) {
-          try {
-            filename = decodeURIComponent(raw.replace(/^"(.*)"$/, "$1"));
-          } catch {
-            filename = raw.replace(/^"(.*)"$/, "$1");
-          }
-        }
-      }
-
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      try {
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        if (filename) a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      } finally {
-        URL.revokeObjectURL(blobUrl);
-      }
-
-      const n = kind === "all" ? count : ids.length;
-      setExportNotice({
-        open: true,
-        tone: "ok",
-        text: n > 0 ? `ดาวน์โหลด ${n.toLocaleString("th-TH")} รายการเสร็จสิ้น` : "ดาวน์โหลดเสร็จสิ้น",
-      });
-      setExportOpen(false);
-      setExportStatus("idle");
-    }
-
     try {
-      if (exportApiMode === "sync") {
-        await syncExportDownload();
-        return;
-      }
-
       const res = await fetch("/api/surveys/heart4rooms/export/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -396,10 +250,9 @@ export function Heart4RoomsAdminClient() {
     }
   }
 
+  /* deps ยาว 2 ช่องคงที่ ([jobId, pad]) — เดิมเคยเป็น [jobId, exportTotal]; ไม่ผูก exportTotal เพื่อไม่ให้ปิด/เปิด SSE ทุกครั้งที่ตัวเลขความคืบหน้าเปลี่ยน */
   useEffect(() => {
     if (!exportJobId) return;
-
-    exportDownloadHandledRef.current = false;
 
     exportEsRef.current?.close();
 
@@ -416,10 +269,7 @@ export function Heart4RoomsAdminClient() {
           filename?: string | null;
         };
         if (data.status) setExportStatus(data.status);
-        if (typeof data.total === "number") {
-          exportTotalRef.current = data.total;
-          setExportTotal(data.total);
-        }
+        if (typeof data.total === "number") setExportTotal(data.total);
         if (typeof data.done === "number") setExportDone(data.done);
         if (data.status === "error") setExportError(data.error || "Export ล้มเหลว");
         if (data.status === "cancelled") {
@@ -428,28 +278,27 @@ export function Heart4RoomsAdminClient() {
           setExportOpen(false);
         }
         if (data.status === "done") {
-          if (exportDownloadHandledRef.current) return;
-          exportDownloadHandledRef.current = true;
+          const jid = exportJobId;
+          if (!jid || lastHeart4ExportDownloadJobId === jid) return;
+          lastHeart4ExportDownloadJobId = jid;
           es.close();
           exportEsRef.current = null;
-          const total = typeof data.total === "number" ? data.total : exportTotalRef.current;
+          const total = typeof data.total === "number" ? data.total : 0;
           const filename = typeof data.filename === "string" ? data.filename : null;
-          void (async () => {
-            try {
-              await downloadExportFile(exportJobId, filename);
-              setExportNotice({
-                open: true,
-                tone: "ok",
-                text: total > 0 ? `ดาวน์โหลด ${total.toLocaleString("th-TH")} รายการเสร็จสิ้น` : "ดาวน์โหลดเสร็จสิ้น",
-              });
-            } catch {
-              setExportNotice({ open: true, tone: "error", text: "ดาวน์โหลดไม่สำเร็จ (โปรดลองอีกครั้ง)" });
-            } finally {
-              setExportJobId(null);
-              setExportOpen(false);
-              setExportStatus("idle");
-            }
-          })();
+          try {
+            triggerExportFileDownload(jid, filename);
+            setExportNotice({
+              open: true,
+              tone: "ok",
+              text: total > 0 ? `ดาวน์โหลด ${total.toLocaleString("th-TH")} รายการเสร็จสิ้น` : "ดาวน์โหลดเสร็จสิ้น",
+            });
+          } catch {
+            setExportNotice({ open: true, tone: "error", text: "ดาวน์โหลดไม่สำเร็จ (โปรดลองอีกครั้ง)" });
+          } finally {
+            setExportJobId(null);
+            setExportOpen(false);
+            setExportStatus("idle");
+          }
         }
       } catch {
         // ignore parse errors
@@ -471,7 +320,7 @@ export function Heart4RoomsAdminClient() {
       es.close();
       if (exportEsRef.current === es) exportEsRef.current = null;
     };
-  }, [exportJobId, HEART4_EXPORT_SSE_DEPS_PAD]);
+  }, [exportJobId, 0]);
 
   async function load(pageOverride?: number) {
     setPending(true);
@@ -698,16 +547,16 @@ export function Heart4RoomsAdminClient() {
 
             <button
               type="button"
-              disabled={pending || exportLocked || exportApiMode === null}
+              disabled={pending || exportLocked}
               onClick={() => void startExport("all")}
               className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
             >
-              {exportApiMode === null ? "กำลังเตรียม Export…" : exportLocked ? "กำลัง Export…" : "Export ทั้งหมด"}
+              {exportLocked ? "กำลัง Export…" : "Export ทั้งหมด"}
             </button>
 
             <button
               type="button"
-              disabled={pending || exportLocked || selectedCount === 0 || exportApiMode === null}
+              disabled={pending || exportLocked || selectedCount === 0}
               onClick={() => void startExport("selected")}
               className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
             >
@@ -1163,19 +1012,10 @@ export function Heart4RoomsAdminClient() {
                     </div>
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-foreground">กำลัง Export</div>
-                      <div className="mt-1 space-y-1 text-xs text-muted">
-                        {exportApiMode === "sync" && exportStatus === "running" ? (
-                          <>
-                            <div className="text-foreground">กำลังสร้างไฟล์ Excel บนเซิร์ฟเวอร์…</div>
-                            <div className="leading-snug">
-                              โหมดออนไลน์ (Vercel) ไม่ฝังรูปในเซลล์เป็นค่าเริ่มต้น — ยังมีลิงก์ไปยังรูป — เพื่อลดโอกาสค้างหรือหมดเวลา
-                            </div>
-                          </>
-                        ) : exportTotal > 0 ? (
-                          <div>{`${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ`}</div>
-                        ) : (
-                          <div>กำลังเตรียมข้อมูล…</div>
-                        )}
+                      <div className="mt-1 text-xs text-muted">
+                        {exportTotal > 0
+                          ? `${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ`
+                          : "กำลังเตรียมข้อมูล…"}
                       </div>
                     </div>
                   </div>
@@ -1188,18 +1028,13 @@ export function Heart4RoomsAdminClient() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="relative h-3 overflow-hidden rounded-full border border-border bg-background">
-                        {exportTotal > 0 ? (
-                          <div
-                            className="h-full rounded-full bg-foreground transition-[width] duration-200"
-                            style={{ width: `${exportPercent}%` }}
-                          />
-                        ) : exportStatus === "running" || exportStatus === "pending" ? (
-                          <div
-                            className="absolute inset-y-0 left-0 w-[42%] rounded-full bg-foreground/75 motion-safe:animate-[h4r-export-indeterminate_1.15s_ease-in-out_infinite]"
-                            aria-hidden
-                          />
-                        ) : null}
+                      <div className="h-3 overflow-hidden rounded-full border border-border bg-background">
+                        <div
+                          className="h-full rounded-full bg-foreground transition-[width] duration-200"
+                          style={{
+                            width: exportTotal > 0 ? `${exportPercent}%` : "0%",
+                          }}
+                        />
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted">
                         <div>
@@ -1223,7 +1058,7 @@ export function Heart4RoomsAdminClient() {
                       </div>
                       <button
                         type="button"
-                        disabled={exportApiMode !== "job" || !exportJobId || !exportLocked}
+                        disabled={!exportJobId || !exportLocked}
                         onClick={() => void cancelExport()}
                         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
                       >

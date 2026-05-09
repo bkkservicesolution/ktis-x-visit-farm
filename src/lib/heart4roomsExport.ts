@@ -1,5 +1,10 @@
 import ExcelJS from "exceljs";
 import sharp from "sharp";
+import type { Heart4RoomsExportImageOptions, Heart4RoomsExportImagePreset } from "./heart4roomsExportImageOptions";
+import { DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS } from "./heart4roomsExportImageOptions";
+
+export type { Heart4RoomsExportImageOptions, Heart4RoomsExportImagePreset } from "./heart4roomsExportImageOptions";
+export { DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS } from "./heart4roomsExportImageOptions";
 
 export type LabelMap = {
   questions: Record<string, string>;
@@ -24,6 +29,18 @@ export type Heart4RoomsExportProgress = {
   done: number;
   total: number;
 };
+
+/** ขนาดวางรูปเช็คอินใน Excel (`ext`) — เดิม 280×210 */
+const HEART4_EXPORT_CHECKIN_IMAGE_EXT = { width: 200, height: 150 } as const;
+/** ความสูงแถวตามสัดส่วนเดิม (แถวที่มีรูปเคยใช้ 156 เมื่อรูปสูง 210) */
+const HEART4_EXPORT_CHECKIN_ROW_HEIGHT = Math.round((156 * HEART4_EXPORT_CHECKIN_IMAGE_EXT.height) / 210);
+/** พิกเซลด้านยาวสุดของภาพที่ฝัง — ~1.5× ขนาดแสดงใน Excel ให้สัมพันธ์กับ `HEART4_EXPORT_CHECKIN_IMAGE_EXT` */
+const HEART4_EXPORT_CHECKIN_EMBED_MAX_EDGE = Math.round(
+  Math.max(HEART4_EXPORT_CHECKIN_IMAGE_EXT.width, HEART4_EXPORT_CHECKIN_IMAGE_EXT.height) * 1.5,
+);
+
+/** โหลด + บีบรูปเช็คอินพร้อมกันหลาย URL — จำกัดเพื่อไม่ให้โหลดพร้อมกันเกินไป */
+const HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY = 8;
 
 /** Fixes labels where extract-heart4rooms-map.mjs merged keys incorrectly */
 function patchLabelMap(map: LabelMap): LabelMap {
@@ -522,83 +539,116 @@ function formatTs(iso: string): string {
   return d.toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" });
 }
 
-type EmbeddedImage = { buffer: Buffer; extension: "jpeg" };
-
-/**
- * Display dimensions for the check-in image cell. Source images are resized to
- * roughly 2× this width so they stay sharp on hi-DPI screens after Excel
- * scales them down — but no larger, to keep memory and file size bounded.
- */
-const IMAGE_CELL_WIDTH = 280;
-const IMAGE_CELL_HEIGHT = 210;
-const IMAGE_RESIZE_WIDTH = 560;
-const IMAGE_JPEG_QUALITY = 65;
-
-/** Concurrency for image fetch+resize. Each unit holds at most ~ original-image
- *  bytes + a tiny resized buffer, so this caps peak memory. */
-const IMAGE_FETCH_CONCURRENCY = 4;
-
-/** Hard cap to keep one bad upload from stalling the whole export. */
-const IMAGE_FETCH_TIMEOUT_MS = 20_000;
-
-async function fetchAndCompressImage(url: string): Promise<EmbeddedImage | null> {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), IMAGE_FETCH_TIMEOUT_MS);
+async function fetchImageBuffer(
+  url: string,
+): Promise<{ buffer: Buffer; extension: "jpeg" | "png" | "gif" } | null> {
   try {
-    const res = await fetch(url, { redirect: "follow", signal: ctl.signal });
+    const res = await fetch(url, { redirect: "follow" });
     if (!res.ok) return null;
-    const raw = Buffer.from(await res.arrayBuffer());
-    if (raw.length === 0) return null;
-
-    // Always re-encode to JPEG. Even already-JPEG photos shrink dramatically
-    // after resize, and unifying the format simplifies ExcelJS image handling.
-    const compressed = await sharp(raw, { failOn: "none" })
-      .rotate() // honor EXIF orientation
-      .resize({ width: IMAGE_RESIZE_WIDTH, withoutEnlargement: true })
-      .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
-      .toBuffer();
-
-    return { buffer: compressed, extension: "jpeg" };
+    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (ct.includes("png")) return { buffer: buf, extension: "png" };
+    if (ct.includes("gif")) return { buffer: buf, extension: "gif" };
+    return { buffer: buf, extension: "jpeg" };
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
-/** Run an async mapper over an indexed list with bounded concurrency. */
-async function mapWithConcurrency<T>(
-  count: number,
-  concurrency: number,
-  worker: (i: number) => Promise<T>,
-  onItemDone?: (i: number) => void,
-): Promise<T[]> {
-  const out = new Array<T>(count);
-  let next = 0;
-  const lanes = Array.from({ length: Math.max(1, Math.min(concurrency, count)) }, async () => {
-    while (true) {
-      const i = next++;
-      if (i >= count) return;
-      out[i] = await worker(i);
-      onItemDone?.(i);
-    }
-  });
-  await Promise.all(lanes);
-  return out;
+async function shrinkImageForExport(
+  buffer: Buffer,
+  preset: Exclude<Heart4RoomsExportImagePreset, "original">,
+): Promise<{ buffer: Buffer; extension: "jpeg" } | null> {
+  /** compact: ใช้ `HEART4_EXPORT_CHECKIN_EMBED_MAX_EDGE` ผูกกับขนาดวางใน Excel */
+  const cfg =
+    preset === "balanced"
+      ? { maxEdge: 960, quality: 78 }
+      : { maxEdge: HEART4_EXPORT_CHECKIN_EMBED_MAX_EDGE, quality: 74 };
+
+  try {
+    const out = await sharp(buffer)
+      .rotate()
+      .resize({
+        width: cfg.maxEdge,
+        height: cfg.maxEdge,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: cfg.quality, mozjpeg: true })
+      .toBuffer();
+    return { buffer: out, extension: "jpeg" };
+  } catch {
+    return null;
+  }
 }
 
-type BuildOptions = {
-  onProgress?: (p: Heart4RoomsExportProgress) => void;
-  /** When false, skip fetching/compressing URLs and do not embed images (link column stays). Faster for serverless. */
-  embedImages?: boolean;
-};
+async function prepareEmbeddedCheckinImage(
+  img: NonNullable<Awaited<ReturnType<typeof fetchImageBuffer>>>,
+  imageOpts: Heart4RoomsExportImageOptions,
+): Promise<{ buffer: Buffer; extension: "jpeg" | "png" | "gif" }> {
+  if (imageOpts.preset === "original") {
+    return { buffer: img.buffer, extension: img.extension };
+  }
+  const shrunk = await shrinkImageForExport(img.buffer, imageOpts.preset);
+  if (shrunk) return shrunk;
+  return { buffer: img.buffer, extension: img.extension };
+}
 
-async function buildExcelBuffer(
+type EmbeddedCheckinImage = { buffer: Buffer; extension: "jpeg" | "png" | "gif" };
+
+async function runPool<T>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+  if (items.length === 0) return;
+  const workers = Math.max(1, Math.min(concurrency, items.length));
+  let next = 0;
+
+  async function spawn(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      await worker(items[i]!);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workers }, () => spawn()));
+}
+
+/** โหลดและบีบรูปตาม URL แบบจำกัด concurrency — URL ซ้ำในแถวหลายแถวโหลดครั้งเดียว */
+async function prefetchEmbeddedCheckinImagesByUrl(
+  rows: Heart4ExportRow[],
+  imageOpts: Heart4RoomsExportImageOptions,
+  concurrency: number,
+  onProgress?: (p: Heart4RoomsExportProgress) => void,
+): Promise<Map<string, EmbeddedCheckinImage | null>> {
+  const total = rows.length;
+  const rowUrls = rows.map((r) => getCheckinPhotoUrl(r));
+  const rowsPerUrl = new Map<string, number>();
+  for (const url of rowUrls) {
+    if (!url) continue;
+    rowsPerUrl.set(url, (rowsPerUrl.get(url) ?? 0) + 1);
+  }
+
+  let done = rowUrls.filter((u) => !u).length;
+  if (done > 0) onProgress?.({ done, total });
+
+  const uniqueUrls = [...rowsPerUrl.keys()];
+  const embeddedByUrl = new Map<string, EmbeddedCheckinImage | null>();
+
+  await runPool(uniqueUrls, concurrency, async (url) => {
+    const img = await fetchImageBuffer(url);
+    const embedded = img ? await prepareEmbeddedCheckinImage(img, imageOpts) : null;
+    embeddedByUrl.set(url, embedded);
+    done += rowsPerUrl.get(url) ?? 0;
+    onProgress?.({ done, total });
+  });
+
+  return embeddedByUrl;
+}
+
+export async function buildHeart4RoomsExcelBuffer(
   rows: Heart4ExportRow[],
   map: LabelMap,
-  opts: BuildOptions = {},
+  imageOpts: Heart4RoomsExportImageOptions = DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS,
 ): Promise<Buffer> {
-  const embedPhotos = opts.embedImages !== false;
   const patched = patchLabelMap(map);
   const columns = buildExportColumns(patched);
   const imageCol0 = columns.length;
@@ -614,52 +664,34 @@ async function buildExcelBuffer(
     { header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 },
   ];
 
-  const total = rows.length;
-  let progressDone = 0;
-  const reportProgress = () => {
-    progressDone += 1;
-    opts.onProgress?.({ done: progressDone, total });
-  };
-
-  const urls = rows.map(getCheckinPhotoUrl);
-
-  let images: (EmbeddedImage | null)[];
-  if (embedPhotos) {
-    images = await mapWithConcurrency(
-      rows.length,
-      IMAGE_FETCH_CONCURRENCY,
-      async (i) => {
-        const u = urls[i];
-        if (!u) return null;
-        return fetchAndCompressImage(u);
-      },
-      reportProgress,
-    );
-  } else {
-    opts.onProgress?.({ done: Math.max(total, 0), total: Math.max(total, 0) });
-    images = new Array(rows.length).fill(null);
-  }
+  const embeddedByUrl = await prefetchEmbeddedCheckinImagesByUrl(
+    rows,
+    imageOpts,
+    HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY,
+  );
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     const excelRowIndex = i + 2;
     const cellTexts = columns.map((c) => c.text(row, patched));
+    const url = getCheckinPhotoUrl(row);
     const rowCells = [...cellTexts, ""];
     const added = ws.addRow(rowCells);
+    if (url) added.height = HEART4_EXPORT_CHECKIN_ROW_HEIGHT;
 
-    const img = images[i];
-    if (embedPhotos && img) {
-      added.height = 156;
-      const imageId = wb.addImage({
-        buffer: img.buffer as unknown as ExcelJS.Buffer,
-        extension: img.extension,
-      });
-      ws.addImage(imageId, {
-        tl: { col: imageCol0, row: excelRowIndex - 1 },
-        ext: { width: IMAGE_CELL_WIDTH, height: IMAGE_CELL_HEIGHT },
-      });
-    } else if (embedPhotos && urls[i]) {
-      added.height = 156;
+    if (url) {
+      const embedded = embeddedByUrl.get(url);
+      if (embedded) {
+        const imageId = wb.addImage({
+          // exceljs expects Node Buffer; TS 5 buffer typing differs from Response buffers
+          buffer: embedded.buffer as unknown as ExcelJS.Buffer,
+          extension: embedded.extension,
+        });
+        ws.addImage(imageId, {
+          tl: { col: imageCol0, row: excelRowIndex - 1 },
+          ext: { ...HEART4_EXPORT_CHECKIN_IMAGE_EXT },
+        });
+      }
     }
 
     for (let c = 1; c <= rowCells.length; c += 1) {
@@ -676,28 +708,67 @@ async function buildExcelBuffer(
   return Buffer.from(buf);
 }
 
-export type Heart4RoomsExcelExtraOptions = {
-  embedImages?: boolean;
-};
-
-export async function buildHeart4RoomsExcelBuffer(
-  rows: Heart4ExportRow[],
-  map: LabelMap,
-  extra?: Heart4RoomsExcelExtraOptions,
-): Promise<Buffer> {
-  return buildExcelBuffer(rows, map, {
-    embedImages: extra?.embedImages ?? true,
-  });
-}
-
 export async function buildHeart4RoomsExcelBufferWithProgress(
   rows: Heart4ExportRow[],
   map: LabelMap,
   onProgress?: (p: Heart4RoomsExportProgress) => void,
-  extra?: Heart4RoomsExcelExtraOptions,
+  imageOpts: Heart4RoomsExportImageOptions = DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS,
 ): Promise<Buffer> {
-  return buildExcelBuffer(rows, map, {
-    onProgress,
-    embedImages: extra?.embedImages ?? true,
+  const patched = patchLabelMap(map);
+  const columns = buildExportColumns(patched);
+  const imageCol0 = columns.length;
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "KTIS Visit Farm";
+  const ws = wb.addWorksheet("หัวใจ 4 ห้อง", {
+    views: [{ state: "frozen", ySplit: 1 }],
   });
+
+  ws.columns = [
+    ...columns.map((c) => ({ header: c.header, width: Math.min(60, c.width) })),
+    { header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 },
+  ];
+
+  const embeddedByUrl = await prefetchEmbeddedCheckinImagesByUrl(
+    rows,
+    imageOpts,
+    HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY,
+    onProgress,
+  );
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const excelRowIndex = i + 2;
+    const cellTexts = columns.map((c) => c.text(row, patched));
+    const url = getCheckinPhotoUrl(row);
+    const rowCells = [...cellTexts, ""];
+    const added = ws.addRow(rowCells);
+    if (url) added.height = HEART4_EXPORT_CHECKIN_ROW_HEIGHT;
+
+    if (url) {
+      const embedded = embeddedByUrl.get(url);
+      if (embedded) {
+        const imageId = wb.addImage({
+          buffer: embedded.buffer as unknown as ExcelJS.Buffer,
+          extension: embedded.extension,
+        });
+        ws.addImage(imageId, {
+          tl: { col: imageCol0, row: excelRowIndex - 1 },
+          ext: { ...HEART4_EXPORT_CHECKIN_IMAGE_EXT },
+        });
+      }
+    }
+
+    for (let c = 1; c <= rowCells.length; c += 1) {
+      const cell = ws.getCell(excelRowIndex, c);
+      cell.alignment = { vertical: "top", wrapText: true };
+    }
+  }
+
+  const headerRow = ws.getRow(1);
+  headerRow.font = { bold: true };
+  headerRow.alignment = { vertical: "middle", wrapText: true };
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
 }
