@@ -220,12 +220,36 @@ function formatQ24Full(answers: Record<string, unknown>, map: LabelMap): string 
   const u = renderMulti("q24_uses", answers, map);
   const h = renderMulti("q24_how", answers, map);
   const r = renderMulti("q24_rate", answers, map);
-  const other = s(getObj(answers.q24).otherSoil);
+  const q24o = getObj(answers.q24);
+  const other = s(q24o.otherSoil);
+  const fw = s(q24o.factoryWant);
+  let dLine = "";
+  if (fw === "1") {
+    const formCode = (() => {
+      const c = s(q24o.factoryForm);
+      if (c === "i" || c === "ii") return c;
+      const legacy = arr(answers.q24_factory_forms);
+      if (legacy.includes("i") && legacy.includes("ii")) return legacy[0] ?? "";
+      if (legacy.includes("i")) return "i";
+      if (legacy.includes("ii")) return "ii";
+      return "";
+    })();
+    const formLabel = formCode ? choiceLabel("q24_factory_form", formCode, map) : "";
+    const bags = s(q24o.factoryBags);
+    dLine = joinLines(
+      `(ง) ต้องการใช้ปุ๋ยอินทรีย์ของโรงงานในปีนี้: ต้องการ`,
+      formLabel ? `รูปแบบที่ต้องการ: ${formLabel}` : "",
+      bags ? `จำนวนกระสอบ: ${bags}` : "",
+    );
+  } else if (fw === "2") {
+    dLine = `(ง) ต้องการใช้ปุ๋ยอินทรีย์ของโรงงานในปีนี้: ไม่ต้องการ`;
+  }
   return joinLines(
     u ? `(ก) การใช้ปุ๋ยอินทรีย์/วัสดุ: ${u}` : "",
     h ? `(ข) วิธีใส่: ${h}` : "",
     r ? `(ค) อัตรา: ${r}` : "",
     other ? `วัสดุปรับปรุงดินอื่น: ${other}` : "",
+    dLine,
   );
 }
 

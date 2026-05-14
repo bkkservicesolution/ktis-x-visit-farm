@@ -1364,6 +1364,21 @@ function Step7({ answers, setField, mergeField, toggleMulti }: Heart4SurveySteps
     toggleMulti("q24_uses", code);
   };
 
+  const legacyFactoryForms = qArr(answers, "q24_factory_forms");
+  const q24FactoryFormRaw = typeof q24.factoryForm === "string" ? q24.factoryForm : "";
+  const q24FactoryForm =
+    q24FactoryFormRaw === "i" || q24FactoryFormRaw === "ii"
+      ? q24FactoryFormRaw
+      : legacyFactoryForms.includes("i") && legacyFactoryForms.includes("ii")
+        ? "i"
+        : legacyFactoryForms.includes("i")
+          ? "i"
+          : legacyFactoryForms.includes("ii")
+            ? "ii"
+            : "";
+  const q24FactoryWant = typeof q24.factoryWant === "string" ? q24.factoryWant : "";
+  const q24FactoryBags = typeof q24.factoryBags === "string" ? q24.factoryBags : "";
+
   const q25 = qObj(answers, "q25");
   const q25Opts = qArr(answers, "q25_opts");
   const has25 = (c: string) => q25Opts.includes(c);
@@ -1419,6 +1434,69 @@ function Step7({ answers, setField, mergeField, toggleMulti }: Heart4SurveySteps
               </div>
             </>
           ) : null}
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-border bg-card p-4">
+          <div className="text-sm font-semibold text-foreground">
+            d. ท่านต้องการใช้ปุ๋ยอินทรีย์ของโรงงานในปีนี้หรือไม่
+          </div>
+          <div className="mt-3 space-y-3">
+            <label className="block">
+              <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                <input
+                  type="radio"
+                  name="q24_factoryWant"
+                  checked={q24FactoryWant === "1"}
+                  onChange={() => mergeField("q24", { ...q24, factoryWant: "1" })}
+                  className="mt-1"
+                />
+                <span>ต้องการ</span>
+              </div>
+              {q24FactoryWant === "1" ? (
+                <div className="mt-2 space-y-3 pl-6">
+                  <div>
+                    <Lab>รูปแบบที่ต้องการ</Lab>
+                    <RadioRow
+                      name="q24_factoryForm"
+                      value={q24FactoryForm}
+                      onChange={(v) => {
+                        mergeField("q24", { ...q24, factoryForm: v });
+                        if (legacyFactoryForms.length) setField("q24_factory_forms", []);
+                      }}
+                      options={[
+                        { v: "i", label: "เม็ด" },
+                        { v: "ii", label: "ผง" },
+                      ]}
+                    />
+                  </div>
+                  <div>
+                    <Lab>ระบุจำนวนกระสอบ</Lab>
+                    <Line
+                      value={q24FactoryBags}
+                      onChange={(t) => mergeField("q24", { ...q24, factoryBags: t })}
+                      placeholder="จำนวนกระสอบ"
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </label>
+
+            <label className="block">
+              <div className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                <input
+                  type="radio"
+                  name="q24_factoryWant"
+                  checked={q24FactoryWant === "2"}
+                  onChange={() => {
+                    setField("q24_factory_forms", []);
+                    mergeField("q24", { ...q24, factoryWant: "2", factoryBags: "", factoryForm: "" });
+                  }}
+                  className="mt-1"
+                />
+                <span>ไม่ต้องการ</span>
+              </div>
+            </label>
+          </div>
         </div>
       </section>
 

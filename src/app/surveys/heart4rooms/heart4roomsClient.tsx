@@ -723,6 +723,17 @@ export function Heart4RoomsClient() {
           if (u.includes("iv") && !nonEmpty(q24.otherSoil)) missing.push("ข้อ 24 (a.iv): โปรดระบุ");
         }
 
+        const fw = s(q24.factoryWant);
+        if (fw !== "1" && fw !== "2") missing.push("ข้อ 24 (d): เลือกคำตอบ");
+        if (fw === "1") {
+          const fForm = s(q24.factoryForm);
+          const legacyFf = arr("q24_factory_forms");
+          const hasForm =
+            fForm === "i" || fForm === "ii" || legacyFf.includes("i") || legacyFf.includes("ii");
+          if (!hasForm) missing.push("ข้อ 24 (d): เลือกรูปแบบ (เม็ด/ผง)");
+          if (!nonEmpty(q24.factoryBags)) missing.push("ข้อ 24 (d): ระบุจำนวนกระสอบ");
+        }
+
         const q25 = obj("q25");
         const o = arr("q25_opts");
         if (o.length === 0) missing.push("ข้อ 25: เลือกอย่างน้อย 1 ข้อ");
