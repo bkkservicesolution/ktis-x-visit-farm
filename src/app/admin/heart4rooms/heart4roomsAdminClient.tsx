@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Heart4SurveySteps, type Heart4SurveyStepsProps } from "@/app/surveys/heart4rooms/heart4SurveySteps";
@@ -35,25 +36,6 @@ type PatchResponse =
   | { ok: true; row: DetailRow }
   | { ok: false; error: string; detail?: unknown };
 
-function getFarmerRoleLabel(rawAnswers: unknown): string {
-  const answers =
-    rawAnswers && typeof rawAnswers === "object" && !Array.isArray(rawAnswers)
-      ? (rawAnswers as Record<string, unknown>)
-      : {};
-
-  const roleRaw = answers.farmer_role;
-  const role = typeof roleRaw === "string" ? roleRaw.trim() : "";
-
-  const otherRaw = answers.farmer_role_other;
-  const other = typeof otherRaw === "string" ? otherRaw.trim() : "";
-  const otherText = other;
-
-  if (role === "owner") return "เจ้าของไร่";
-  if (role === "worker") return "ลูกไร่";
-  if (role === "other") return otherText ? `อื่นๆ: ${otherText}` : "อื่นๆ";
-  return "";
-}
-
 function getFarmerRoleValue(rawAnswers: unknown): { role: "owner" | "worker" | "other" | ""; other: string } {
   const answers =
     rawAnswers && typeof rawAnswers === "object" && !Array.isArray(rawAnswers)
@@ -70,15 +52,13 @@ function getFarmerRoleValue(rawAnswers: unknown): { role: "owner" | "worker" | "
   return { role: effectiveRole as "owner" | "worker" | "other" | "", other: other.trim() };
 }
 
-function Heart4Preview({
+function Heart4EditPreview({
   answers,
-  editable,
   setField,
   mergeField,
   toggleMulti,
 }: {
   answers: Heart4SurveyStepsProps["answers"];
-  editable: boolean;
   setField: Heart4SurveyStepsProps["setField"];
   mergeField: Heart4SurveyStepsProps["mergeField"];
   toggleMulti: Heart4SurveyStepsProps["toggleMulti"];
@@ -87,7 +67,7 @@ function Heart4Preview({
     <div className="rounded-2xl border border-border bg-background p-4">
       <div className="text-xs font-medium text-muted">คำถามและคำตอบ (แสดงตามแบบฟอร์ม)</div>
       <div className="mt-3 max-h-[52vh] overflow-auto pr-1">
-        <div className={editable ? "space-y-8" : "pointer-events-none select-none space-y-8"}>
+        <div className="space-y-8">
           {Array.from({ length: 9 }, (_, i) => i + 1).map((step) => (
             <div key={step} className="rounded-3xl border border-border bg-card p-4">
               <div className="text-xs font-semibold tracking-wide text-muted">หน้าที่ {step}/9</div>
@@ -143,16 +123,23 @@ export function Heart4RoomsAdminClient() {
   const [exportDone, setExportDone] = useState(0);
   const [exportTotal, setExportTotal] = useState(0);
   const [exportStatus, setExportStatus] = useState<"idle" | "pending" | "running" | "done" | "cancelled" | "error">("idle");
+  const [exportStage, setExportStage] = useState<"images" | "rows" | "writing" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const exportEsRef = useRef<EventSource | null>(null);
+  const exportPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const exportStartLockRef = useRef(false);
-  const [exportNotice, setExportNotice] = useState<{ open: boolean; text: string; tone: "ok" | "error" }>({
+  const [exportNotice, setExportNotice] = useState<{
+    open: boolean;
+    text: string;
+    tone: "ok" | "error";
+    jobId?: string | null;
+  }>({
     open: false,
     text: "",
     tone: "ok",
+    jobId: null,
   });
 
-  const [dialogMode, setDialogMode] = useState<"view" | "edit">("view");
   const [savePending, setSavePending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -185,14 +172,23 @@ export function Heart4RoomsAdminClient() {
     a.remove();
   }
 
+  function closeExportStreams() {
+    exportEsRef.current?.close();
+    exportEsRef.current = null;
+    if (exportPollRef.current) {
+      clearInterval(exportPollRef.current);
+      exportPollRef.current = null;
+    }
+  }
+
   async function cancelExport() {
     if (!exportJobId) return;
     try {
       await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(exportJobId)}/cancel`, { method: "POST" });
     } finally {
-      exportEsRef.current?.close();
-      exportEsRef.current = null;
+      closeExportStreams();
       setExportStatus("cancelled");
+      setExportStage(null);
       setExportError(null);
       setExportJobId(null);
       setExportOpen(false);
@@ -200,6 +196,45 @@ export function Heart4RoomsAdminClient() {
         open: true,
         tone: "ok",
         text: exportTotal > 0 ? `ยกเลิกการดาวน์โหลดแล้ว (${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ)` : "ยกเลิกการดาวน์โหลดแล้ว",
+        jobId: null,
+      });
+    }
+  }
+
+  async function retryExportDownload(jobId: string) {
+    try {
+      const res = await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/status`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; status?: string; filename?: string | null }
+        | null;
+      if (res.ok && data?.ok && data.status === "done") {
+        triggerExportFileDownload(jobId, data.filename ?? null);
+        setExportNotice({ open: true, tone: "ok", text: "ดาวน์โหลดเสร็จสิ้น", jobId: null });
+        return;
+      }
+      if (data?.status === "cancelled") {
+        setExportNotice({ open: true, tone: "error", text: "งาน export ถูกยกเลิกไปแล้ว", jobId: null });
+        return;
+      }
+      if (data?.status === "error") {
+        setExportNotice({ open: true, tone: "error", text: "งาน export ล้มเหลว โปรดลอง export ใหม่", jobId: null });
+        return;
+      }
+      setExportNotice({
+        open: true,
+        tone: "error",
+        text: "ไฟล์ยังไม่พร้อม กรุณาลองอีกครั้งใน 5 วินาที",
+        jobId,
+      });
+    } catch {
+      setExportNotice({
+        open: true,
+        tone: "error",
+        text: "ลองดาวน์โหลดไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",
+        jobId,
       });
     }
   }
@@ -250,76 +285,158 @@ export function Heart4RoomsAdminClient() {
     }
   }
 
-  /* deps ยาว 2 ช่องคงที่ ([jobId, pad]) — เดิมเคยเป็น [jobId, exportTotal]; ไม่ผูก exportTotal เพื่อไม่ให้ปิด/เปิด SSE ทุกครั้งที่ตัวเลขความคืบหน้าเปลี่ยน */
+  /**
+   * จัดการ progress ของ export job:
+   * - ใช้ SSE (`/events`) เป็นช่องทางหลัก
+   * - ถ้า SSE error → ลอง reconnect แบบ exponential backoff สูงสุด 2 ครั้ง
+   * - ถ้ายัง error อีก → ตกลงไปใช้การ poll JSON `/status` ทุก 2 วินาที (ทนต่อ event loop block / multi-instance)
+   * - ทั้ง 2 ทางเจอ status=done → trigger ดาวน์โหลดไฟล์
+   * deps ยาว 2 ช่องคงที่ ([jobId, pad]) — ไม่ผูก exportTotal เพื่อไม่ให้ปิด/เปิด SSE ทุกครั้งที่ตัวเลขความคืบหน้าเปลี่ยน
+   */
   useEffect(() => {
     if (!exportJobId) return;
+    const jobId = exportJobId;
 
-    exportEsRef.current?.close();
+    closeExportStreams();
 
-    const es = new EventSource(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(exportJobId)}/events`);
-    exportEsRef.current = es;
+    let cancelled = false;
+    let sseAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const onProgress = (e: MessageEvent<string>) => {
-      try {
-        const data = JSON.parse(e.data) as {
-          status?: "pending" | "running" | "done" | "cancelled" | "error";
-          done?: number;
-          total?: number;
-          error?: string | null;
-          filename?: string | null;
-        };
-        if (data.status) setExportStatus(data.status);
-        if (typeof data.total === "number") setExportTotal(data.total);
-        if (typeof data.done === "number") setExportDone(data.done);
-        if (data.status === "error") setExportError(data.error || "Export ล้มเหลว");
-        if (data.status === "cancelled") {
-          es.close();
-          exportEsRef.current = null;
+    type ProgressData = {
+      status?: "pending" | "running" | "done" | "cancelled" | "error";
+      stage?: "images" | "rows" | "writing" | null;
+      done?: number;
+      total?: number;
+      error?: string | null;
+      filename?: string | null;
+    };
+
+    const applyProgress = (data: ProgressData) => {
+      if (data.status) setExportStatus(data.status);
+      if (data.stage === "images" || data.stage === "rows" || data.stage === "writing") {
+        setExportStage(data.stage);
+      }
+      if (typeof data.total === "number") setExportTotal(data.total);
+      if (typeof data.done === "number") setExportDone(data.done);
+      if (data.status === "error") setExportError(data.error || "Export ล้มเหลว");
+      if (data.status === "cancelled") {
+        closeExportStreams();
+        setExportOpen(false);
+      }
+      if (data.status === "done") {
+        if (lastHeart4ExportDownloadJobId === jobId) return;
+        lastHeart4ExportDownloadJobId = jobId;
+        closeExportStreams();
+        const total = typeof data.total === "number" ? data.total : 0;
+        const filename = typeof data.filename === "string" ? data.filename : null;
+        try {
+          triggerExportFileDownload(jobId, filename);
+          setExportNotice({
+            open: true,
+            tone: "ok",
+            text: total > 0 ? `ดาวน์โหลด ${total.toLocaleString("th-TH")} รายการเสร็จสิ้น` : "ดาวน์โหลดเสร็จสิ้น",
+            jobId: null,
+          });
+        } catch {
+          setExportNotice({
+            open: true,
+            tone: "error",
+            text: "ดาวน์โหลดไม่สำเร็จ — กดปุ่ม “ลองดาวน์โหลดไฟล์” เพื่อลองอีกครั้ง",
+            jobId,
+          });
+        } finally {
+          setExportJobId(null);
           setExportOpen(false);
+          setExportStatus("idle");
+          setExportStage(null);
         }
-        if (data.status === "done") {
-          const jid = exportJobId;
-          if (!jid || lastHeart4ExportDownloadJobId === jid) return;
-          lastHeart4ExportDownloadJobId = jid;
-          es.close();
-          exportEsRef.current = null;
-          const total = typeof data.total === "number" ? data.total : 0;
-          const filename = typeof data.filename === "string" ? data.filename : null;
-          try {
-            triggerExportFileDownload(jid, filename);
-            setExportNotice({
-              open: true,
-              tone: "ok",
-              text: total > 0 ? `ดาวน์โหลด ${total.toLocaleString("th-TH")} รายการเสร็จสิ้น` : "ดาวน์โหลดเสร็จสิ้น",
-            });
-          } catch {
-            setExportNotice({ open: true, tone: "error", text: "ดาวน์โหลดไม่สำเร็จ (โปรดลองอีกครั้ง)" });
-          } finally {
-            setExportJobId(null);
-            setExportOpen(false);
-            setExportStatus("idle");
-          }
-        }
-      } catch {
-        // ignore parse errors
       }
     };
 
-    const onError = () => {
-      setExportError("เชื่อมต่อสถานะ export ไม่สำเร็จ");
-      setExportStatus("error");
-      es.close();
-      exportEsRef.current = null;
+    const startPolling = () => {
+      if (cancelled || exportPollRef.current) return;
+      exportPollRef.current = setInterval(async () => {
+        if (cancelled) return;
+        try {
+          const res = await fetch(
+            `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/status`,
+            { method: "GET", cache: "no-store" },
+          );
+          if (res.status === 404) {
+            if (exportPollRef.current) {
+              clearInterval(exportPollRef.current);
+              exportPollRef.current = null;
+            }
+            setExportError("ไม่พบงาน export (อาจหมดอายุหรือเซิร์ฟเวอร์รีสตาร์ท)");
+            setExportStatus("error");
+            return;
+          }
+          const data = (await res.json().catch(() => null)) as
+            | (ProgressData & { ok?: boolean })
+            | null;
+          if (data && data.ok !== false) applyProgress(data);
+        } catch {
+          // ปล่อยให้ poll ครั้งถัดไปลองใหม่
+        }
+      }, 2000);
     };
 
-    es.addEventListener("progress", onProgress as EventListener);
-    es.onerror = onError;
+    const connectSse = () => {
+      if (cancelled) return;
+
+      const es = new EventSource(
+        `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/events`,
+      );
+      exportEsRef.current = es;
+
+      const onProgress = (e: MessageEvent<string>) => {
+        try {
+          const data = JSON.parse(e.data) as ProgressData;
+          /** มี payload เข้ามาแล้ว ถือว่าเชื่อมต่อสำเร็จ — reset attempt + เลิกแจ้ง error ค้าง */
+          if (sseAttempt > 0) sseAttempt = 0;
+          setExportError(null);
+          applyProgress(data);
+        } catch {
+          // ignore parse errors
+        }
+      };
+
+      const onError = () => {
+        es.close();
+        if (exportEsRef.current === es) exportEsRef.current = null;
+        if (cancelled) return;
+
+        sseAttempt += 1;
+        if (sseAttempt <= 2) {
+          const delay = sseAttempt === 1 ? 1000 : 3000;
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connectSse();
+          }, delay);
+          return;
+        }
+
+        /** SSE ล้มเหลวซ้ำ → ไม่ถือเป็น fatal ทันที สลับไป poll status ก่อน */
+        startPolling();
+      };
+
+      es.addEventListener("progress", onProgress as EventListener);
+      es.onerror = onError;
+    };
+
+    connectSse();
 
     return () => {
-      es.removeEventListener("progress", onProgress as EventListener);
-      es.close();
-      if (exportEsRef.current === es) exportEsRef.current = null;
+      cancelled = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      closeExportStreams();
     };
+    /* deps คงที่ 2 ช่อง ([jobId, pad]) เพื่อให้ Fast Refresh ระหว่างพัฒนาไม่ throw "deps changed size" */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportJobId, 0]);
 
   async function load(pageOverride?: number) {
@@ -479,7 +596,7 @@ export function Heart4RoomsAdminClient() {
               },
         ),
       );
-      setDialogMode("view");
+      setSelectedId(null);
     } finally {
       setSavePending(false);
     }
@@ -614,13 +731,24 @@ export function Heart4RoomsAdminClient() {
               <div className="font-semibold">{exportNotice.tone === "ok" ? "สำเร็จ" : "เกิดข้อผิดพลาด"}</div>
               <div className="mt-1 text-xs opacity-90">{exportNotice.text}</div>
             </div>
-            <button
-              type="button"
-              onClick={() => setExportNotice({ open: false, text: "", tone: "ok" })}
-              className="shrink-0 rounded-2xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-foreground/5"
-            >
-              ปิด
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {exportNotice.tone === "error" && exportNotice.jobId ? (
+                <button
+                  type="button"
+                  onClick={() => exportNotice.jobId && void retryExportDownload(exportNotice.jobId)}
+                  className="rounded-2xl bg-foreground px-3 py-2 text-xs font-semibold text-background transition hover:bg-foreground/90"
+                >
+                  ลองดาวน์โหลดไฟล์
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setExportNotice({ open: false, text: "", tone: "ok", jobId: null })}
+                className="rounded-2xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-foreground/5"
+              >
+                ปิด
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -661,22 +789,15 @@ export function Heart4RoomsAdminClient() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDialogMode("view");
-                      setSelectedId(r.id);
-                    }}
+                  <Link
+                    href={`/admin/heart4rooms/${encodeURIComponent(r.id)}`}
                     className="inline-flex min-w-[96px] flex-1 items-center justify-center rounded-2xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
                   >
                     ดู
-                  </button>
+                  </Link>
                   <button
                     type="button"
-                    onClick={() => {
-                      setDialogMode("edit");
-                      setSelectedId(r.id);
-                    }}
+                    onClick={() => setSelectedId(r.id)}
                     className="inline-flex min-w-[96px] flex-1 items-center justify-center rounded-2xl bg-foreground px-3 py-2 text-xs font-semibold text-background shadow-sm transition hover:bg-foreground/90"
                   >
                     แก้ไข
@@ -710,22 +831,15 @@ export function Heart4RoomsAdminClient() {
                 <div className="col-span-2 truncate text-xs text-muted">{r.submitter_display_name}</div>
 
                 <div className="col-span-2 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDialogMode("view");
-                      setSelectedId(r.id);
-                    }}
+                  <Link
+                    href={`/admin/heart4rooms/${encodeURIComponent(r.id)}`}
                     className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-foreground/5"
                   >
                     ดู
-                  </button>
+                  </Link>
                   <button
                     type="button"
-                    onClick={() => {
-                      setDialogMode("edit");
-                      setSelectedId(r.id);
-                    }}
+                    onClick={() => setSelectedId(r.id)}
                     className="rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90"
                   >
                     แก้ไข
@@ -763,56 +877,18 @@ export function Heart4RoomsAdminClient() {
                 <div className="relative w-full max-w-3xl overflow-hidden rounded-3xl border border-border bg-card shadow-[0_24px_70px_rgba(0,0,0,0.38)]">
                   <div className="flex items-center justify-between border-b border-border px-5 py-4">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-foreground">
-                        {dialogMode === "edit" ? "แก้ไข" : "รายละเอียด"}
-                      </div>
+                      <div className="text-sm font-semibold text-foreground">แก้ไข</div>
                       <div className="mt-1 truncate text-xs text-muted">{selectedId}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {dialogMode === "view" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!detail) return;
-                            setSaveError(null);
-                            setDialogMode("edit");
-                            setEditSubmitter(detail.submitter_display_name ?? "");
-                            setEditFarmerFirst(detail.farmer_first_name ?? "");
-                            setEditFarmerLast(detail.farmer_last_name ?? "");
-                            setEditContractNo(detail.contract_no ?? "");
-                            setEditAnswers(
-                              detail.answers && typeof detail.answers === "object" && !Array.isArray(detail.answers)
-                                ? (detail.answers as Heart4SurveyStepsProps["answers"])
-                                : {},
-                            );
-                          }}
-                          className="rounded-2xl bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:bg-foreground/90"
-                        >
-                          แก้ไข
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={savePending}
-                          onClick={() => {
-                            setSaveError(null);
-                            setDialogMode("view");
-                          }}
-                          className="rounded-2xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/5 disabled:opacity-40"
-                        >
-                          ดู
-                        </button>
-                      )}
-                      {dialogMode === "edit" ? (
-                        <button
-                          type="button"
-                          disabled={savePending}
-                          onClick={() => void onSave()}
-                          className="rounded-2xl bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:bg-foreground/90 disabled:opacity-40"
-                        >
-                          {savePending ? "กำลังบันทึก…" : "บันทึก"}
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        disabled={savePending}
+                        onClick={() => void onSave()}
+                        className="rounded-2xl bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:bg-foreground/90 disabled:opacity-40"
+                      >
+                        {savePending ? "กำลังบันทึก…" : "บันทึก"}
+                      </button>
                       <button
                         type="button"
                         onClick={() => setSelectedId(null)}
@@ -837,27 +913,19 @@ export function Heart4RoomsAdminClient() {
                           </div>
                           <div className="rounded-2xl border border-border bg-background p-3">
                             <div className="text-xs font-medium text-muted">ผู้กรอก</div>
-                            {dialogMode === "edit" ? (
-                              <input
-                                value={editSubmitter}
-                                onChange={(e) => setEditSubmitter(e.target.value)}
-                                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
-                              />
-                            ) : (
-                              <div className="mt-1 text-sm font-semibold text-foreground">{detail.submitter_display_name}</div>
-                            )}
+                            <input
+                              value={editSubmitter}
+                              onChange={(e) => setEditSubmitter(e.target.value)}
+                              className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                            />
                           </div>
                           <div className="rounded-2xl border border-border bg-background p-3">
                             <div className="text-xs font-medium text-muted">เลขที่สัญญา</div>
-                            {dialogMode === "edit" ? (
-                              <input
-                                value={editContractNo}
-                                onChange={(e) => setEditContractNo(e.target.value)}
-                                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
-                              />
-                            ) : (
-                              <div className="mt-1 text-sm font-semibold text-foreground">{detail.contract_no}</div>
-                            )}
+                            <input
+                              value={editContractNo}
+                              onChange={(e) => setEditContractNo(e.target.value)}
+                              className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                            />
                           </div>
                         </div>
 
@@ -870,105 +938,90 @@ export function Heart4RoomsAdminClient() {
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="rounded-2xl border border-border bg-background p-3">
                             <div className="text-xs font-medium text-muted">ชาวไร่: ชื่อ</div>
-                            {dialogMode === "edit" ? (
-                              <input
-                                value={editFarmerFirst}
-                                onChange={(e) => setEditFarmerFirst(e.target.value)}
-                                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
-                              />
-                            ) : (
-                              <div className="mt-1 text-sm font-semibold text-foreground">{detail.farmer_first_name}</div>
-                            )}
+                            <input
+                              value={editFarmerFirst}
+                              onChange={(e) => setEditFarmerFirst(e.target.value)}
+                              className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                            />
                           </div>
                           <div className="rounded-2xl border border-border bg-background p-3">
                             <div className="text-xs font-medium text-muted">ชาวไร่: นามสกุล</div>
-                            {dialogMode === "edit" ? (
-                              <input
-                                value={editFarmerLast}
-                                onChange={(e) => setEditFarmerLast(e.target.value)}
-                                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
-                              />
-                            ) : (
-                              <div className="mt-1 text-sm font-semibold text-foreground">{detail.farmer_last_name}</div>
-                            )}
+                            <input
+                              value={editFarmerLast}
+                              onChange={(e) => setEditFarmerLast(e.target.value)}
+                              className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                            />
                           </div>
                         </div>
 
                         <div className="rounded-2xl border border-border bg-background p-3">
                           <div className="text-xs font-medium text-muted">ชาวไร่: มีสถานะเป็น</div>
-                          {dialogMode === "edit" ? (
-                            <div className="mt-2 space-y-2">
-                              {(() => {
-                                const v = getFarmerRoleValue(editAnswers);
-                                return (
-                                  <>
+                          <div className="mt-2 space-y-2">
+                            {(() => {
+                              const v = getFarmerRoleValue(editAnswers);
+                              return (
+                                <>
+                                  <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                                    <input
+                                      type="radio"
+                                      name="admin_farmer_role"
+                                      checked={v.role === "owner"}
+                                      onChange={() => {
+                                        setField("farmer_role", "owner");
+                                        setField("farmer_role_other", "");
+                                      }}
+                                      className="mt-1"
+                                    />
+                                    <span>เจ้าของไร่</span>
+                                  </label>
+                                  <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                                    <input
+                                      type="radio"
+                                      name="admin_farmer_role"
+                                      checked={v.role === "worker"}
+                                      onChange={() => {
+                                        setField("farmer_role", "worker");
+                                        setField("farmer_role_other", "");
+                                      }}
+                                      className="mt-1"
+                                    />
+                                    <span>ลูกไร่</span>
+                                  </label>
+                                  <div className="space-y-2">
                                     <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
                                       <input
                                         type="radio"
                                         name="admin_farmer_role"
-                                        checked={v.role === "owner"}
+                                        checked={v.role === "other"}
                                         onChange={() => {
-                                          setField("farmer_role", "owner");
-                                          setField("farmer_role_other", "");
+                                          setField("farmer_role", "other");
                                         }}
                                         className="mt-1"
                                       />
-                                      <span>เจ้าของไร่</span>
+                                      <span>อื่นๆ</span>
                                     </label>
-                                    <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                                    {v.role === "other" ? (
                                       <input
-                                        type="radio"
-                                        name="admin_farmer_role"
-                                        checked={v.role === "worker"}
-                                        onChange={() => {
-                                          setField("farmer_role", "worker");
-                                          setField("farmer_role_other", "");
+                                        value={v.other}
+                                        onChange={(e) => {
+                                          setField("farmer_role_other", e.target.value);
                                         }}
-                                        className="mt-1"
+                                        className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                                        placeholder="โปรดระบุสถานะอื่น"
                                       />
-                                      <span>ลูกไร่</span>
-                                    </label>
-                                    <div className="space-y-2">
-                                      <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-                                        <input
-                                          type="radio"
-                                          name="admin_farmer_role"
-                                          checked={v.role === "other"}
-                                          onChange={() => {
-                                            setField("farmer_role", "other");
-                                          }}
-                                          className="mt-1"
-                                        />
-                                        <span>อื่นๆ</span>
-                                      </label>
-                                      {v.role === "other" ? (
-                                        <input
-                                          value={v.other}
-                                          onChange={(e) => {
-                                            setField("farmer_role_other", e.target.value);
-                                          }}
-                                          className="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
-                                          placeholder="โปรดระบุสถานะอื่น"
-                                        />
-                                      ) : null}
-                                    </div>
-                                  </>
-                                );
-                              })()}
-                            </div>
-                          ) : (
-                            <div className="mt-1 text-sm font-semibold text-foreground">
-                              {getFarmerRoleLabel(detail.answers) || "-"}
-                            </div>
-                          )}
+                                    ) : null}
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
                         </div>
 
-                        <Heart4Preview
-                          answers={dialogMode === "edit" ? editAnswers : (detail.answers as Heart4SurveyStepsProps["answers"]) ?? {}}
-                          editable={dialogMode === "edit"}
-                          setField={dialogMode === "edit" ? setField : (() => {})}
-                          mergeField={dialogMode === "edit" ? mergeField : (() => {})}
-                          toggleMulti={dialogMode === "edit" ? toggleMulti : (() => {})}
+                        <Heart4EditPreview
+                          answers={editAnswers}
+                          setField={setField}
+                          mergeField={mergeField}
+                          toggleMulti={toggleMulti}
                         />
 
                         <details className="rounded-2xl border border-border bg-background p-4">
@@ -976,7 +1029,7 @@ export function Heart4RoomsAdminClient() {
                             ข้อมูลดิบ (answers)
                           </summary>
                           <pre className="mt-3 overflow-auto rounded-2xl border border-border bg-card p-3 text-xs text-foreground">
-                            {JSON.stringify(dialogMode === "edit" ? editAnswers : (detail.answers ?? null), null, 2)}
+                            {JSON.stringify(editAnswers, null, 2)}
                           </pre>
                         </details>
                       </div>
@@ -1023,8 +1076,35 @@ export function Heart4RoomsAdminClient() {
 
                 <div className="px-5 py-5">
                   {exportError ? (
-                    <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-accent">
-                      {exportError}
+                    <div className="space-y-3">
+                      <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-accent">
+                        {exportError}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {exportJobId ? (
+                          <button
+                            type="button"
+                            onClick={() => exportJobId && void retryExportDownload(exportJobId)}
+                            className="inline-flex flex-1 items-center justify-center rounded-2xl bg-foreground px-4 py-3 text-sm font-semibold text-background transition hover:bg-foreground/90"
+                          >
+                            ลองดาวน์โหลดไฟล์
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeExportStreams();
+                            setExportOpen(false);
+                            setExportError(null);
+                            setExportJobId(null);
+                            setExportStatus("idle");
+                            setExportStage(null);
+                          }}
+                          className="inline-flex flex-1 items-center justify-center rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-foreground/5"
+                        >
+                          ปิด
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -1049,11 +1129,17 @@ export function Heart4RoomsAdminClient() {
                         <div>
                           {exportStatus === "done"
                             ? "เสร็จแล้ว กำลังดาวน์โหลด…"
-                            : exportStatus === "running"
-                              ? "กำลังสร้างไฟล์…"
-                              : exportStatus === "pending"
-                                ? "กำลังเตรียม…"
-                                : ""}
+                            : exportStage === "writing"
+                              ? "กำลังเขียนไฟล์ Excel…"
+                              : exportStage === "rows"
+                                ? "กำลังเรียงข้อมูลลงชีต…"
+                                : exportStage === "images"
+                                  ? "กำลังเตรียมรูปภาพ…"
+                                  : exportStatus === "running"
+                                    ? "กำลังสร้างไฟล์…"
+                                    : exportStatus === "pending"
+                                      ? "กำลังเตรียม…"
+                                      : ""}
                         </div>
                       </div>
                       <button
