@@ -25,18 +25,28 @@ export type Heart4ExportRow = {
   attachments: unknown;
 };
 
+export type Heart4RoomsExportProgressStage = "images" | "rows" | "writing";
+
 export type Heart4RoomsExportProgress = {
   done: number;
   total: number;
+  /** เฟสปัจจุบันของงาน export (optional — backward compatible) */
+  stage?: Heart4RoomsExportProgressStage;
 };
+
+/** จำนวนแถวที่ต้องเขียนเสร็จก่อน yield event loop 1 ครั้ง — กัน writeBuffer/SSE ไม่ได้ tick */
+const HEART4_EXPORT_ROW_YIELD_EVERY = 50;
+/** ความถี่ heartbeat ระหว่างขั้น writeBuffer (ms) เพื่อกัน SSE หลุดเพราะ idle */
+const HEART4_EXPORT_WRITING_HEARTBEAT_MS = 1500;
 
 /** ขนาดวางรูปเช็คอินใน Excel (`ext`) — เดิม 280×210 */
 const HEART4_EXPORT_CHECKIN_IMAGE_EXT = { width: 200, height: 150 } as const;
 /** ความสูงแถวตามสัดส่วนเดิม (แถวที่มีรูปเคยใช้ 156 เมื่อรูปสูง 210) */
 const HEART4_EXPORT_CHECKIN_ROW_HEIGHT = Math.round((156 * HEART4_EXPORT_CHECKIN_IMAGE_EXT.height) / 210);
-/** พิกเซลด้านยาวสุดของภาพที่ฝัง — ~1.5× ขนาดแสดงใน Excel ให้สัมพันธ์กับ `HEART4_EXPORT_CHECKIN_IMAGE_EXT` */
-const HEART4_EXPORT_CHECKIN_EMBED_MAX_EDGE = Math.round(
-  Math.max(HEART4_EXPORT_CHECKIN_IMAGE_EXT.width, HEART4_EXPORT_CHECKIN_IMAGE_EXT.height) * 1.5,
+/** พิกเซลด้านยาวสุดของภาพที่ฝัง — 1:1 กับขนาดแสดงใน Excel (พอดีตามที่เห็น, ไฟล์เล็กลง) */
+const HEART4_EXPORT_CHECKIN_EMBED_MAX_EDGE = Math.max(
+  HEART4_EXPORT_CHECKIN_IMAGE_EXT.width,
+  HEART4_EXPORT_CHECKIN_IMAGE_EXT.height,
 );
 
 /** โหลด + บีบรูปเช็คอินพร้อมกันหลาย URL — จำกัดเพื่อไม่ให้โหลดพร้อมกันเกินไป */
@@ -652,7 +662,7 @@ async function prefetchEmbeddedCheckinImagesByUrl(
   }
 
   let done = rowUrls.filter((u) => !u).length;
-  if (done > 0) onProgress?.({ done, total });
+  if (done > 0) onProgress?.({ done, total, stage: "images" });
 
   const uniqueUrls = [...rowsPerUrl.keys()];
   const embeddedByUrl = new Map<string, EmbeddedCheckinImage | null>();
@@ -662,10 +672,14 @@ async function prefetchEmbeddedCheckinImagesByUrl(
     const embedded = img ? await prepareEmbeddedCheckinImage(img, imageOpts) : null;
     embeddedByUrl.set(url, embedded);
     done += rowsPerUrl.get(url) ?? 0;
-    onProgress?.({ done, total });
+    onProgress?.({ done, total, stage: "images" });
   });
 
   return embeddedByUrl;
+}
+
+function yieldEventLoop(): Promise<void> {
+  return new Promise<void>((r) => setImmediate(r));
 }
 
 export async function buildHeart4RoomsExcelBuffer(
@@ -722,12 +736,15 @@ export async function buildHeart4RoomsExcelBuffer(
       const cell = ws.getCell(excelRowIndex, c);
       cell.alignment = { vertical: "top", wrapText: true };
     }
+
+    if ((i + 1) % HEART4_EXPORT_ROW_YIELD_EVERY === 0) await yieldEventLoop();
   }
 
   const headerRow = ws.getRow(1);
   headerRow.font = { bold: true };
   headerRow.alignment = { vertical: "middle", wrapText: true };
 
+  await yieldEventLoop();
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
@@ -760,7 +777,9 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
     onProgress,
   );
 
-  for (let i = 0; i < rows.length; i += 1) {
+  const totalRows = rows.length;
+
+  for (let i = 0; i < totalRows; i += 1) {
     const row = rows[i];
     const excelRowIndex = i + 2;
     const cellTexts = columns.map((c) => c.text(row, patched));
@@ -787,12 +806,34 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
       const cell = ws.getCell(excelRowIndex, c);
       cell.alignment = { vertical: "top", wrapText: true };
     }
+
+    /** ทุก N แถวให้ yield event loop เพื่อให้ setInterval ของ SSE ทำงานได้ + รายงาน progress phase "rows" */
+    if ((i + 1) % HEART4_EXPORT_ROW_YIELD_EVERY === 0 || i === totalRows - 1) {
+      onProgress?.({ done: i + 1, total: totalRows, stage: "rows" });
+      await yieldEventLoop();
+    }
   }
 
   const headerRow = ws.getRow(1);
   headerRow.font = { bold: true };
   headerRow.alignment = { vertical: "middle", wrapText: true };
 
-  const buf = await wb.xlsx.writeBuffer();
-  return Buffer.from(buf);
+  /** ขั้นเขียนไฟล์ — รายงาน stage="writing" + heartbeat กัน SSE หลุดเพราะ idle */
+  onProgress?.({ done: totalRows, total: totalRows, stage: "writing" });
+  await yieldEventLoop();
+
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  try {
+    heartbeat = setInterval(() => {
+      try {
+        onProgress?.({ done: totalRows, total: totalRows, stage: "writing" });
+      } catch {
+        // กรณีถูก cancel ระหว่าง writeBuffer — ปล่อยให้ writeBuffer เสร็จแล้วค่อยจัดการที่ outer try
+      }
+    }, HEART4_EXPORT_WRITING_HEARTBEAT_MS);
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf);
+  } finally {
+    if (heartbeat) clearInterval(heartbeat);
+  }
 }

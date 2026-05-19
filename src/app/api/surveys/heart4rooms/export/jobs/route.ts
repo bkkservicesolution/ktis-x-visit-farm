@@ -86,7 +86,7 @@ export async function POST(req: Request) {
         if (isHeart4RoomsExportJobCancelled(job.id)) {
           throw new Error("CANCELLED");
         }
-        updateHeart4RoomsExportJobProgress(job.id, p.done, p.total);
+        updateHeart4RoomsExportJobProgress(job.id, p.done, p.total, p.stage);
       });
 
       const ts = new Date().toISOString().replaceAll(":", "-");

@@ -41,6 +41,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ jobId: string 
         const payload = JSON.stringify({
           id: job.id,
           status: job.status,
+          stage: job.stage ?? null,
           done: job.progress.done,
           total: job.progress.total,
           filename: job.filename ?? null,

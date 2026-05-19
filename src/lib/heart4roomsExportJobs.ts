@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 
 export type Heart4RoomsExportJobStatus = "pending" | "running" | "done" | "cancelled" | "error";
 
+export type Heart4RoomsExportJobStage = "images" | "rows" | "writing";
+
 export type Heart4RoomsExportJobProgress = {
   done: number;
   total: number;
@@ -11,6 +13,7 @@ export type Heart4RoomsExportJobSnapshot = {
   id: string;
   status: Heart4RoomsExportJobStatus;
   progress: Heart4RoomsExportJobProgress;
+  stage?: Heart4RoomsExportJobStage;
   createdAt: number;
   updatedAt: number;
   expiresAt: number;
@@ -51,6 +54,7 @@ function snapshot(job: Heart4RoomsExportJobInternal): Heart4RoomsExportJobSnapsh
     id: job.id,
     status: job.status,
     progress: job.progress,
+    stage: job.stage,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     expiresAt: job.expiresAt,
@@ -97,17 +101,24 @@ export function markHeart4RoomsExportJobRunning(id: string, total: number) {
   const now = Date.now();
   job.status = "running";
   job.progress = { done: 0, total: Math.max(0, total) };
+  job.stage = "images";
   job.updatedAt = now;
   job.expiresAt = now + JOB_TTL_MS;
 }
 
-export function updateHeart4RoomsExportJobProgress(id: string, done: number, total?: number) {
+export function updateHeart4RoomsExportJobProgress(
+  id: string,
+  done: number,
+  total?: number,
+  stage?: Heart4RoomsExportJobStage,
+) {
   const job = store().get(id);
   if (!job) return;
   const now = Date.now();
   const t = typeof total === "number" ? total : job.progress.total;
   const d = Math.max(0, Math.min(done, Math.max(0, t)));
   job.progress = { done: d, total: Math.max(0, t) };
+  if (stage) job.stage = stage;
   job.updatedAt = now;
   job.expiresAt = now + JOB_TTL_MS;
 }
