@@ -97,6 +97,34 @@ function formatDate(iso: string): string {
 /** ไม่ใช้ ref ใน component เพื่อไม่ให้จำนวน hook เปลี่ยนแล้ว Fast Refresh สับสนกับ useEffect เดิม */
 let lastHeart4ExportDownloadJobId: string | null = null;
 
+type Heart4ExportApiMode = "sync" | "job";
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      return star[1].trim();
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() ?? null;
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function Heart4RoomsAdminClient() {
   const [q, setQ] = useState("");
   const [promoterId, setPromoterId] = useState("");
@@ -117,6 +145,7 @@ export function Heart4RoomsAdminClient() {
   const [deletePending, setDeletePending] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
+  const [exportApiMode, setExportApiMode] = useState<Heart4ExportApiMode | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportStarting, setExportStarting] = useState(false);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
@@ -127,6 +156,7 @@ export function Heart4RoomsAdminClient() {
   const [exportError, setExportError] = useState<string | null>(null);
   const exportEsRef = useRef<EventSource | null>(null);
   const exportPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
   const exportStartLockRef = useRef(false);
   const [exportNotice, setExportNotice] = useState<{
     open: boolean;
@@ -179,9 +209,46 @@ export function Heart4RoomsAdminClient() {
       clearInterval(exportPollRef.current);
       exportPollRef.current = null;
     }
+    exportAbortRef.current?.abort();
+    exportAbortRef.current = null;
   }
 
+  async function resolveExportApiMode(): Promise<Heart4ExportApiMode> {
+    if (exportApiMode) return exportApiMode;
+    try {
+      const res = await fetch("/api/surveys/heart4rooms/export/settings", { cache: "no-store" });
+      const json = (await res.json().catch(() => null)) as { mode?: string } | null;
+      const mode: Heart4ExportApiMode = json?.mode === "job" ? "job" : "sync";
+      setExportApiMode(mode);
+      return mode;
+    } catch {
+      const mode: Heart4ExportApiMode = "sync";
+      setExportApiMode(mode);
+      return mode;
+    }
+  }
+
+  useEffect(() => {
+    void resolveExportApiMode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function cancelExport() {
+    if (exportAbortRef.current) {
+      closeExportStreams();
+      setExportStatus("cancelled");
+      setExportStage(null);
+      setExportError(null);
+      setExportJobId(null);
+      setExportOpen(false);
+      setExportNotice({
+        open: true,
+        tone: "ok",
+        text: "ยกเลิกการดาวน์โหลดแล้ว",
+        jobId: null,
+      });
+      return;
+    }
     if (!exportJobId) return;
     try {
       await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(exportJobId)}/cancel`, { method: "POST" });
@@ -239,26 +306,57 @@ export function Heart4RoomsAdminClient() {
     }
   }
 
-  async function startExport(kind: "all" | "selected") {
-    if (exportLocked) return;
-    if (exportStartLockRef.current) return;
-    exportStartLockRef.current = true;
-    lastHeart4ExportDownloadJobId = null;
-    setExportStarting(true);
-    setExportError(null);
-    setExportOpen(true);
-    setExportJobId(null);
-    setExportDone(0);
-    setExportTotal(0);
-    setExportStatus("pending");
+  function buildExportQueryParams(ids: string[]): URLSearchParams {
+    const sp = new URLSearchParams();
+    if (q.trim()) sp.set("q", q.trim());
+    if (promoterId.trim()) sp.set("promoter_id", promoterId.trim());
+    if (from) sp.set("from", from);
+    if (to) sp.set("to", to);
+    if (ids.length) sp.set("ids", ids.join(","));
+    return sp;
+  }
 
-    const ids =
-      kind === "selected"
-        ? Object.entries(selectedIds)
-            .filter(([, v]) => v)
-            .map(([id]) => id)
-        : [];
+  async function startExportSync(ids: string[]) {
+    const ac = new AbortController();
+    exportAbortRef.current = ac;
+    setExportStatus("running");
+    setExportStage("writing");
 
+    try {
+      const sp = buildExportQueryParams(ids);
+      const res = await fetch(`/api/surveys/heart4rooms/export?${sp.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+        signal: ac.signal,
+      });
+
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        setExportError(json?.error === "DB_ERROR" ? "โหลดข้อมูลไม่สำเร็จ" : "Export ไม่สำเร็จ");
+        setExportStatus("error");
+        return;
+      }
+
+      const blob = await res.blob();
+      const ts = new Date().toISOString().replaceAll(":", "-");
+      const filename =
+        filenameFromContentDisposition(res.headers.get("content-disposition")) ??
+        `ktisx_heart4rooms_${ts}.xlsx`;
+      triggerBlobDownload(blob, filename);
+      setExportNotice({ open: true, tone: "ok", text: "ดาวน์โหลดเสร็จสิ้น", jobId: null });
+      setExportOpen(false);
+      setExportStatus("idle");
+      setExportStage(null);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      setExportError("Export ไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง");
+      setExportStatus("error");
+    } finally {
+      exportAbortRef.current = null;
+    }
+  }
+
+  async function startExportJob(ids: string[]) {
     try {
       const res = await fetch("/api/surveys/heart4rooms/export/jobs", {
         method: "POST",
@@ -283,6 +381,41 @@ export function Heart4RoomsAdminClient() {
       setExportStarting(false);
       exportStartLockRef.current = false;
     }
+  }
+
+  async function startExport(kind: "all" | "selected") {
+    if (exportLocked) return;
+    if (exportStartLockRef.current) return;
+    exportStartLockRef.current = true;
+    lastHeart4ExportDownloadJobId = null;
+    setExportStarting(true);
+    setExportError(null);
+    setExportOpen(true);
+    setExportJobId(null);
+    setExportDone(0);
+    setExportTotal(0);
+    setExportStatus("pending");
+    setExportStage(null);
+
+    const ids =
+      kind === "selected"
+        ? Object.entries(selectedIds)
+            .filter(([, v]) => v)
+            .map(([id]) => id)
+        : [];
+
+    const mode = await resolveExportApiMode();
+    if (mode === "sync") {
+      setExportStarting(false);
+      try {
+        await startExportSync(ids);
+      } finally {
+        exportStartLockRef.current = false;
+      }
+      return;
+    }
+
+    await startExportJob(ids);
   }
 
   /**
@@ -1144,7 +1277,7 @@ export function Heart4RoomsAdminClient() {
                       </div>
                       <button
                         type="button"
-                        disabled={!exportJobId || !exportLocked}
+                        disabled={!exportLocked}
                         onClick={() => void cancelExport()}
                         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
                       >
