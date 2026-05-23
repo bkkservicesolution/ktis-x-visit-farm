@@ -682,11 +682,19 @@ function yieldEventLoop(): Promise<void> {
   return new Promise<void>((r) => setImmediate(r));
 }
 
+export type Heart4RoomsExcelBuildOptions = {
+  /** แทรกรูปเช็คอินในคอลัมน์ Excel (default: true) */
+  embedImages?: boolean;
+  imageOpts?: Heart4RoomsExportImageOptions;
+};
+
 export async function buildHeart4RoomsExcelBuffer(
   rows: Heart4ExportRow[],
   map: LabelMap,
-  imageOpts: Heart4RoomsExportImageOptions = DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS,
+  buildOpts: Heart4RoomsExcelBuildOptions = {},
 ): Promise<Buffer> {
+  const embedImages = buildOpts.embedImages !== false;
+  const imageOpts = buildOpts.imageOpts ?? DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS;
   const patched = patchLabelMap(map);
   const columns = buildExportColumns(patched);
   const imageCol0 = columns.length;
@@ -699,25 +707,23 @@ export async function buildHeart4RoomsExcelBuffer(
 
   ws.columns = [
     ...columns.map((c) => ({ header: c.header, width: Math.min(60, c.width) })),
-    { header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 },
+    ...(embedImages ? [{ header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 }] : []),
   ];
 
-  const embeddedByUrl = await prefetchEmbeddedCheckinImagesByUrl(
-    rows,
-    imageOpts,
-    HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY,
-  );
+  const embeddedByUrl = embedImages
+    ? await prefetchEmbeddedCheckinImagesByUrl(rows, imageOpts, HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY)
+    : null;
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     const excelRowIndex = i + 2;
     const cellTexts = columns.map((c) => c.text(row, patched));
-    const url = getCheckinPhotoUrl(row);
-    const rowCells = [...cellTexts, ""];
+    const url = embedImages ? getCheckinPhotoUrl(row) : "";
+    const rowCells = embedImages ? [...cellTexts, ""] : cellTexts;
     const added = ws.addRow(rowCells);
-    if (url) added.height = HEART4_EXPORT_CHECKIN_ROW_HEIGHT;
+    if (embedImages && url) added.height = HEART4_EXPORT_CHECKIN_ROW_HEIGHT;
 
-    if (url) {
+    if (embedImages && url && embeddedByUrl) {
       const embedded = embeddedByUrl.get(url);
       if (embedded) {
         const imageId = wb.addImage({
@@ -753,8 +759,10 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
   rows: Heart4ExportRow[],
   map: LabelMap,
   onProgress?: (p: Heart4RoomsExportProgress) => void,
-  imageOpts: Heart4RoomsExportImageOptions = DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS,
+  buildOpts: Heart4RoomsExcelBuildOptions = {},
 ): Promise<Buffer> {
+  const embedImages = buildOpts.embedImages !== false;
+  const imageOpts = buildOpts.imageOpts ?? DEFAULT_HEART4_EXPORT_IMAGE_OPTIONS;
   const patched = patchLabelMap(map);
   const columns = buildExportColumns(patched);
   const imageCol0 = columns.length;
@@ -767,15 +775,17 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
 
   ws.columns = [
     ...columns.map((c) => ({ header: c.header, width: Math.min(60, c.width) })),
-    { header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 },
+    ...(embedImages ? [{ header: "ถ่ายรูปเช็คอินหน้างาน (แทรกรูป)", width: 42 }] : []),
   ];
 
-  const embeddedByUrl = await prefetchEmbeddedCheckinImagesByUrl(
-    rows,
-    imageOpts,
-    HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY,
-    onProgress,
-  );
+  const embeddedByUrl = embedImages
+    ? await prefetchEmbeddedCheckinImagesByUrl(
+        rows,
+        imageOpts,
+        HEART4_EXPORT_IMAGE_FETCH_CONCURRENCY,
+        onProgress,
+      )
+    : null;
 
   const totalRows = rows.length;
 
@@ -783,12 +793,12 @@ export async function buildHeart4RoomsExcelBufferWithProgress(
     const row = rows[i];
     const excelRowIndex = i + 2;
     const cellTexts = columns.map((c) => c.text(row, patched));
-    const url = getCheckinPhotoUrl(row);
-    const rowCells = [...cellTexts, ""];
+    const url = embedImages ? getCheckinPhotoUrl(row) : "";
+    const rowCells = embedImages ? [...cellTexts, ""] : cellTexts;
     const added = ws.addRow(rowCells);
-    if (url) added.height = HEART4_EXPORT_CHECKIN_ROW_HEIGHT;
+    if (embedImages && url) added.height = HEART4_EXPORT_CHECKIN_ROW_HEIGHT;
 
-    if (url) {
+    if (embedImages && url && embeddedByUrl) {
       const embedded = embeddedByUrl.get(url);
       if (embedded) {
         const imageId = wb.addImage({

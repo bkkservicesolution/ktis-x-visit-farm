@@ -15,6 +15,7 @@ import {
   markHeart4RoomsExportJobRunning,
   updateHeart4RoomsExportJobProgress,
 } from "@/lib/heart4roomsExportJobs";
+import { resolveHeart4RoomsEmbedImages } from "@/lib/heart4roomsExportEmbed";
 
 export const runtime = "nodejs";
 
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
         from?: unknown;
         to?: unknown;
         ids?: unknown;
+        embed_images?: unknown;
       };
 
   const q = typeof body?.q === "string" ? body.q.trim() : "";
@@ -58,6 +60,11 @@ export async function POST(req: Request) {
   const from = typeof body?.from === "string" ? body.from.trim() : "";
   const to = typeof body?.to === "string" ? body.to.trim() : "";
   const ids = parseBodyIds(body?.ids);
+  const embedImages = resolveHeart4RoomsEmbedImages(
+    typeof body?.embed_images === "string" || typeof body?.embed_images === "number"
+      ? new URLSearchParams({ embed_images: String(body.embed_images) })
+      : undefined,
+  );
 
   const job = createHeart4RoomsExportJob();
 
@@ -82,15 +89,21 @@ export async function POST(req: Request) {
       }
       markHeart4RoomsExportJobRunning(job.id, rows.length);
 
-      const buf = await buildHeart4RoomsExcelBufferWithProgress(rows, map, (p) => {
-        if (isHeart4RoomsExportJobCancelled(job.id)) {
-          throw new Error("CANCELLED");
-        }
-        updateHeart4RoomsExportJobProgress(job.id, p.done, p.total, p.stage);
-      });
+      const buf = await buildHeart4RoomsExcelBufferWithProgress(
+        rows,
+        map,
+        (p) => {
+          if (isHeart4RoomsExportJobCancelled(job.id)) {
+            throw new Error("CANCELLED");
+          }
+          updateHeart4RoomsExportJobProgress(job.id, p.done, p.total, p.stage);
+        },
+        { embedImages },
+      );
 
       const ts = new Date().toISOString().replaceAll(":", "-");
-      const filename = `ktisx_heart4rooms_${ts}.xlsx`;
+      const suffix = embedImages ? "" : "_no_images";
+      const filename = `ktisx_heart4rooms${suffix}_${ts}.xlsx`;
       markHeart4RoomsExportJobDone(job.id, filename, buf);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "EXPORT_ERROR";

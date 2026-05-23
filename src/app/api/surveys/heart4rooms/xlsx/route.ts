@@ -6,6 +6,7 @@ import type { LabelMap } from "@/lib/heart4roomsExport";
 import { buildHeart4RoomsExcelBuffer } from "@/lib/heart4roomsExport";
 import { KTISX_ROLE_COOKIE, type KtisxRole } from "@/lib/authConstants";
 import { fetchAllHeart4RoomsSurveysForExport } from "@/lib/fetchHeart4RoomsSurveysForExport";
+import { resolveHeart4RoomsEmbedImages } from "@/lib/heart4roomsExportEmbed";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,7 @@ export async function GET(req: Request) {
   const map = await loadLabelMap();
 
   const url = new URL(req.url);
+  const embedImages = resolveHeart4RoomsEmbedImages(url.searchParams);
   const q = (url.searchParams.get("q") ?? "").trim();
   const promoter_id = (url.searchParams.get("promoter_id") ?? "").trim();
   const from = (url.searchParams.get("from") ?? "").trim();
@@ -49,13 +51,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "DB_ERROR", detail: error }, { status: 500 });
   }
 
-  const buf = await buildHeart4RoomsExcelBuffer(rows, map);
+  const buf = await buildHeart4RoomsExcelBuffer(rows, map, { embedImages });
   const ts = new Date().toISOString().replaceAll(":", "-");
+  const suffix = embedImages ? "" : "_no_images";
 
   return new Response(new Uint8Array(buf), {
     headers: {
       "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "content-disposition": `attachment; filename="ktisx_heart4rooms_${ts}.xlsx"`,
+      "content-disposition": `attachment; filename="ktisx_heart4rooms${suffix}_${ts}.xlsx"`,
       "cache-control": "no-store",
     },
   });

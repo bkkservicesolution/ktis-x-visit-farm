@@ -192,7 +192,7 @@ export function Heart4RoomsAdminClient() {
 
   /** ให้เบราว์เซอร์ดาวน์โหลดแบบสตรีม — ไม่โหลดทั้งไฟล์เข้า RAM เป็น Blob (ลดโอกาสพังเมื่อไฟล์ใหญ่/ใช้เวลานาน แม้ Network ขึ้น 200) */
   function triggerExportFileDownload(jobId: string, filename: string | null) {
-    const path = `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/file`;
+    const path = `/api/surveys/heart4rooms/xlsx/jobs/${encodeURIComponent(jobId)}/file`;
     const a = document.createElement("a");
     a.href = path;
     if (filename) a.download = filename;
@@ -216,7 +216,7 @@ export function Heart4RoomsAdminClient() {
   async function resolveExportApiMode(): Promise<Heart4ExportApiMode> {
     if (exportApiMode) return exportApiMode;
     try {
-      const res = await fetch("/api/surveys/heart4rooms/export/settings", { cache: "no-store" });
+      const res = await fetch("/api/surveys/heart4rooms/xlsx/settings", { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as { mode?: string } | null;
       const mode: Heart4ExportApiMode = json?.mode === "job" ? "job" : "sync";
       setExportApiMode(mode);
@@ -251,7 +251,7 @@ export function Heart4RoomsAdminClient() {
     }
     if (!exportJobId) return;
     try {
-      await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(exportJobId)}/cancel`, { method: "POST" });
+      await fetch(`/api/surveys/heart4rooms/xlsx/jobs/${encodeURIComponent(exportJobId)}/cancel`, { method: "POST" });
     } finally {
       closeExportStreams();
       setExportStatus("cancelled");
@@ -270,7 +270,7 @@ export function Heart4RoomsAdminClient() {
 
   async function retryExportDownload(jobId: string) {
     try {
-      const res = await fetch(`/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/status`, {
+      const res = await fetch(`/api/surveys/heart4rooms/xlsx/jobs/${encodeURIComponent(jobId)}/status`, {
         method: "GET",
         cache: "no-store",
       });
@@ -306,25 +306,26 @@ export function Heart4RoomsAdminClient() {
     }
   }
 
-  function buildExportQueryParams(ids: string[]): URLSearchParams {
+  function buildExportQueryParams(ids: string[], embedImages: boolean): URLSearchParams {
     const sp = new URLSearchParams();
     if (q.trim()) sp.set("q", q.trim());
     if (promoterId.trim()) sp.set("promoter_id", promoterId.trim());
     if (from) sp.set("from", from);
     if (to) sp.set("to", to);
     if (ids.length) sp.set("ids", ids.join(","));
+    sp.set("embed_images", embedImages ? "1" : "0");
     return sp;
   }
 
-  async function startExportSync(ids: string[]) {
+  async function startExportSync(ids: string[], embedImages: boolean) {
     const ac = new AbortController();
     exportAbortRef.current = ac;
     setExportStatus("running");
-    setExportStage("writing");
+    setExportStage(embedImages ? "images" : "writing");
 
     try {
-      const sp = buildExportQueryParams(ids);
-      const res = await fetch(`/api/surveys/heart4rooms/export?${sp.toString()}`, {
+      const sp = buildExportQueryParams(ids, embedImages);
+      const res = await fetch(`/api/surveys/heart4rooms/xlsx?${sp.toString()}`, {
         method: "GET",
         cache: "no-store",
         signal: ac.signal,
@@ -356,9 +357,9 @@ export function Heart4RoomsAdminClient() {
     }
   }
 
-  async function startExportJob(ids: string[]) {
+  async function startExportJob(ids: string[], embedImages: boolean) {
     try {
-      const res = await fetch("/api/surveys/heart4rooms/export/jobs", {
+      const res = await fetch("/api/surveys/heart4rooms/xlsx/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -367,6 +368,7 @@ export function Heart4RoomsAdminClient() {
           from,
           to,
           ids: ids.join(","),
+          embed_images: embedImages ? "1" : "0",
         }),
       });
 
@@ -383,7 +385,7 @@ export function Heart4RoomsAdminClient() {
     }
   }
 
-  async function startExport(kind: "all" | "selected") {
+  async function startExport(kind: "all" | "selected", embedImages = true) {
     if (exportLocked) return;
     if (exportStartLockRef.current) return;
     exportStartLockRef.current = true;
@@ -408,14 +410,14 @@ export function Heart4RoomsAdminClient() {
     if (mode === "sync") {
       setExportStarting(false);
       try {
-        await startExportSync(ids);
+        await startExportSync(ids, embedImages);
       } finally {
         exportStartLockRef.current = false;
       }
       return;
     }
 
-    await startExportJob(ids);
+    await startExportJob(ids, embedImages);
   }
 
   /**
@@ -493,7 +495,7 @@ export function Heart4RoomsAdminClient() {
         if (cancelled) return;
         try {
           const res = await fetch(
-            `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/status`,
+            `/api/surveys/heart4rooms/xlsx/jobs/${encodeURIComponent(jobId)}/status`,
             { method: "GET", cache: "no-store" },
           );
           if (res.status === 404) {
@@ -519,7 +521,7 @@ export function Heart4RoomsAdminClient() {
       if (cancelled) return;
 
       const es = new EventSource(
-        `/api/surveys/heart4rooms/export/jobs/${encodeURIComponent(jobId)}/events`,
+        `/api/surveys/heart4rooms/xlsx/jobs/${encodeURIComponent(jobId)}/events`,
       );
       exportEsRef.current = es;
 
@@ -801,7 +803,16 @@ export function Heart4RoomsAdminClient() {
               onClick={() => void startExport("all")}
               className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
             >
-              {exportLocked ? "กำลัง Export…" : "Export ทั้งหมด"}
+              {exportLocked ? "กำลัง Export…" : "Export ทั้งหมด (แทรกรูป)"}
+            </button>
+
+            <button
+              type="button"
+              disabled={pending || exportLocked}
+              onClick={() => void startExport("all", false)}
+              className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
+            >
+              Export ทั้งหมด (ไม่แทรกรูป)
             </button>
 
             <button
@@ -811,6 +822,15 @@ export function Heart4RoomsAdminClient() {
               className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
             >
               Export ที่เลือก ({selectedCount})
+            </button>
+
+            <button
+              type="button"
+              disabled={pending || exportLocked || selectedCount === 0}
+              onClick={() => void startExport("selected", false)}
+              className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
+            >
+              Export ที่เลือก (ไม่แทรกรูป) ({selectedCount})
             </button>
           </div>
         </div>
@@ -1201,7 +1221,11 @@ export function Heart4RoomsAdminClient() {
                       <div className="mt-1 text-xs text-muted">
                         {exportTotal > 0
                           ? `${exportDone.toLocaleString("th-TH")}/${exportTotal.toLocaleString("th-TH")} รายการ`
-                          : "กำลังเตรียมข้อมูล…"}
+                          : exportJobId
+                            ? "กำลังเตรียมข้อมูล…"
+                            : exportStage === "images"
+                              ? "กำลังโหลดรูปและสร้างไฟล์บนเซิร์ฟเวอร์ (อาจใช้เวลาหลายนาที)…"
+                              : "กำลังสร้างไฟล์บนเซิร์ฟเวอร์…"}
                       </div>
                     </div>
                   </div>
