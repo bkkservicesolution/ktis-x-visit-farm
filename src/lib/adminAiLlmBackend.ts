@@ -198,7 +198,7 @@ async function chatWithOllama(options: {
   return {
     ok: true,
     provider: "ollama",
-    answer: content,
+    content,
     model,
   };
 }
@@ -359,17 +359,18 @@ function parseGeneratedSqlPlan(rawContent: string): AdminAiGeneratedSqlPlan | nu
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const record = parsed as Record<string, unknown>;
 
-  const sql = typeof parsed.sql === "string" ? parsed.sql.trim() : "";
-  const intentLabel = typeof parsed.intent_label === "string" && parsed.intent_label.trim()
-    ? parsed.intent_label.trim()
-    : typeof parsed.intentLabel === "string" && parsed.intentLabel.trim()
-      ? parsed.intentLabel.trim()
+  const sql = typeof record.sql === "string" ? record.sql.trim() : "";
+  const intentLabel = typeof record.intent_label === "string" && record.intent_label.trim()
+    ? record.intent_label.trim()
+    : typeof record.intentLabel === "string" && record.intentLabel.trim()
+      ? record.intentLabel.trim()
       : "วิเคราะห์คำถามข้อมูล";
-  const maxRowsRaw = typeof parsed.max_rows === "number"
-    ? parsed.max_rows
-    : typeof parsed.maxRows === "number"
-      ? parsed.maxRows
+  const maxRowsRaw = typeof record.max_rows === "number"
+    ? record.max_rows
+    : typeof record.maxRows === "number"
+      ? record.maxRows
       : 20;
 
   if (!sql) return null;
@@ -378,7 +379,7 @@ function parseGeneratedSqlPlan(rawContent: string): AdminAiGeneratedSqlPlan | nu
     intentLabel,
     sql,
     maxRows: Math.max(1, Math.min(Math.trunc(maxRowsRaw), 100)),
-    suggestions: sanitizePlanSuggestions(parsed.suggestions),
+    suggestions: sanitizePlanSuggestions(record.suggestions),
   };
 }
 
