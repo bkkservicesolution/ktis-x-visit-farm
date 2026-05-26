@@ -1,5 +1,9 @@
 import { executeAdminReadonlySql, type AdminAiReadonlySqlSuccess } from "@/lib/adminAiReadonlySqlServer";
-import { getAdminAiBackendMode, refineAdminAiAnswerWithLlm } from "@/lib/adminAiLlmBackend";
+import {
+  generateAdminAiSqlPlanWithLlm,
+  getAdminAiBackendMode,
+  refineAdminAiAnswerWithLlm,
+} from "@/lib/adminAiLlmBackend";
 
 type ChatIntentPlan = {
   id: string;
@@ -15,7 +19,7 @@ type ChatIntentPlan = {
 export type AdminAiChatSuccess = {
   ok: true;
   status: 200;
-  mode: "rule_based_v1" | "ollama_refine_v1" | "llama_cpp_refine_v1";
+  mode: "rule_based_v1" | "ollama_refine_v1" | "llama_cpp_refine_v1" | "freeform_sql_v1";
   question: string;
   intent: {
     id: string;
@@ -60,6 +64,10 @@ const DEFAULT_SUGGESTIONS = [
   "มีกี่รายที่กังวลเรื่องราคาอ้อย",
   "ค่าเฉลี่ยข้อ 29 คือเท่าไร",
 ] as const;
+
+function defaultSuggestions(): string[] {
+  return [...DEFAULT_SUGGESTIONS];
+}
 
 function normalizeQuestion(question: string): string {
   return question.replace(/\s+/g, " ").trim().toLowerCase();
@@ -234,6 +242,103 @@ function planAdminAiQuestion(question: string): ChatIntentPlan | null {
   return null;
 }
 
+async function answerWithFreeformPlanner(question: string): Promise<AdminAiChatResult> {
+  const initialPlanResult = await generateAdminAiSqlPlanWithLlm({ question });
+  if (!initialPlanResult.ok) {
+    return {
+      ok: false,
+      status: 500,
+      error: initialPlanResult.error,
+      message:
+        initialPlanResult.provider === "ollama"
+          ? "ให้ AI สร้าง SQL ไม่สำเร็จ"
+          : "ให้ llama.cpp สร้าง SQL ไม่สำเร็จ",
+      detail: initialPlanResult.detail,
+      suggestions: defaultSuggestions(),
+    };
+  }
+
+  let plan = initialPlanResult.plan;
+  let sqlResult = await executeAdminReadonlySql(plan.sql, plan.maxRows, plan.maxRows);
+
+  if (!sqlResult.ok) {
+    const repairedPlanResult = await generateAdminAiSqlPlanWithLlm({
+      question,
+      previousAttemptSql: plan.sql,
+      previousError: sqlResult.detail ?? sqlResult.message,
+    });
+
+    if (repairedPlanResult.ok) {
+      plan = repairedPlanResult.plan;
+      sqlResult = await executeAdminReadonlySql(plan.sql, plan.maxRows, plan.maxRows);
+    }
+  }
+
+  if (!sqlResult.ok) {
+    return {
+      ok: false,
+      status: sqlResult.status,
+      error: sqlResult.error,
+      message: sqlResult.message,
+      detail: sqlResult.detail,
+      suggestions: plan.suggestions.length > 0 ? plan.suggestions : defaultSuggestions(),
+    };
+  }
+
+  const llmResult = await refineAdminAiAnswerWithLlm({
+    question,
+    intentLabel: plan.intentLabel,
+    draftAnswer: `SQL สำเร็จและได้ผลลัพธ์ ${sqlResult.row_count} แถว`,
+    sql: plan.sql,
+    columns: sqlResult.columns,
+    rows: sqlResult.rows,
+  });
+
+  if (!llmResult.ok) {
+    return {
+      ok: false,
+      status: 500,
+      error: llmResult.error,
+      message:
+        llmResult.provider === "ollama"
+          ? "สรุปคำตอบด้วย Ollama ไม่สำเร็จ"
+          : "สรุปคำตอบด้วย llama.cpp server ไม่สำเร็จ",
+      detail: llmResult.detail,
+      suggestions: plan.suggestions.length > 0 ? plan.suggestions : defaultSuggestions(),
+    };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    mode: "freeform_sql_v1",
+    question,
+    intent: {
+      id: "freeform_sql",
+      label: plan.intentLabel,
+      confidence: 0.94,
+      matched_keywords: [],
+    },
+    answer: llmResult.answer,
+    sql: plan.sql,
+    max_rows: plan.maxRows,
+    result: {
+      columns: sqlResult.columns,
+      rows: sqlResult.rows,
+      row_count: sqlResult.row_count,
+      truncated: sqlResult.truncated,
+      duration_ms: sqlResult.duration_ms,
+      normalized_sql: sqlResult.normalized_sql,
+      relations: sqlResult.relations,
+    },
+    llm: {
+      provider: llmResult.provider,
+      model: llmResult.model,
+    },
+    suggestions: plan.suggestions.length > 0 ? plan.suggestions : defaultSuggestions(),
+  };
+}
+
 export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
   const trimmed = question.trim();
   if (!trimmed) {
@@ -242,8 +347,13 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
       status: 400,
       error: "EMPTY_QUESTION",
       message: "กรุณาพิมพ์คำถามก่อนส่ง",
-      suggestions: [...DEFAULT_SUGGESTIONS],
+      suggestions: defaultSuggestions(),
     };
+  }
+
+  const backendMode = getAdminAiBackendMode();
+  if (backendMode !== "rule_based") {
+    return answerWithFreeformPlanner(trimmed);
   }
 
   const plan = planAdminAiQuestion(trimmed);
@@ -253,7 +363,7 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
       status: 400,
       error: "QUESTION_NOT_SUPPORTED",
       message: "ตอนนี้ AI chat v1 ยังรองรับคำถามบางรูปแบบก่อน เช่น การนับ, การสรุปข้อ 1, โรคอ้อยจากข้อ 7, ความกังวลเรื่องราคาอ้อย, และค่าเฉลี่ยข้อ 29-33",
-      suggestions: [...DEFAULT_SUGGESTIONS],
+      suggestions: defaultSuggestions(),
     };
   }
 
@@ -283,46 +393,10 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
     };
   }
 
-  let mode: AdminAiChatSuccess["mode"] = "rule_based_v1";
-  let llm: AdminAiChatSuccess["llm"] = null;
-  const backendMode = getAdminAiBackendMode();
-
-  if (backendMode !== "rule_based") {
-    const llmResult = await refineAdminAiAnswerWithLlm({
-      question: trimmed,
-      intentLabel: plan.label,
-      draftAnswer: answer,
-      sql: plan.sql,
-      columns: sqlResult.columns,
-      rows: sqlResult.rows,
-    });
-
-    if (!llmResult.ok) {
-      return {
-        ok: false,
-        status: 500,
-        error: llmResult.error,
-        message:
-          llmResult.provider === "ollama"
-            ? "เชื่อมต่อ Ollama ไม่สำเร็จ"
-            : "เชื่อมต่อ llama.cpp server ไม่สำเร็จ",
-        detail: llmResult.detail,
-        suggestions: plan.suggestions,
-      };
-    }
-
-    answer = llmResult.answer;
-    mode = llmResult.provider === "ollama" ? "ollama_refine_v1" : "llama_cpp_refine_v1";
-    llm = {
-      provider: llmResult.provider,
-      model: llmResult.model,
-    };
-  }
-
   return {
     ok: true,
     status: 200,
-    mode,
+    mode: "rule_based_v1",
     question: trimmed,
     intent: {
       id: plan.id,
@@ -342,7 +416,7 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
       normalized_sql: sqlResult.normalized_sql,
       relations: sqlResult.relations,
     },
-    llm,
+    llm: null,
     suggestions: plan.suggestions,
   };
 }

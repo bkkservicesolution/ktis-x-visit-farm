@@ -1,17 +1,16 @@
 import Link from "next/link";
 import { AdminAiChatPanel } from "@/app/admin/ai/AdminAiChatPanel";
-import { AdminAiClient } from "@/app/admin/ai/adminAiClient";
 
 export default function AdminAiPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <header className="rounded-3xl border border-border bg-card p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-xs font-medium tracking-wide text-muted">Admin • AI Tools</div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">AI ผู้ช่วยข้อมูล</h1>
+            <div className="text-xs font-medium tracking-wide text-muted">Admin • AI Assistant</div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">AI ผู้ช่วยข้อมูลหัวใจ 4 ห้อง</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-              ขั้นนี้เป็น AI chat orchestration v1 ในตัวแอปก่อน ยังไม่เชื่อม VPS หรือ Ollama แต่สามารถถามคำถามบางกลุ่มจากข้อมูลจริงได้แล้ว
+              ถามคำถามจากข้อมูลจริงของแบบสอบถามได้โดยตรง ระบบจะเลือกข้อมูลที่เกี่ยวข้องจากฐานข้อมูลแล้วสรุปกลับมาในรูปแบบแชท
             </p>
           </div>
 
@@ -27,7 +26,6 @@ export default function AdminAiPage() {
       </header>
 
       <AdminAiChatPanel />
-      <AdminAiClient />
     </div>
   );
 }

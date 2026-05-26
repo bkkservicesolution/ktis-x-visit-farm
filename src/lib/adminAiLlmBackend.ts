@@ -1,3 +1,5 @@
+import { HEART4_ADMIN_AI_SCHEMA_HELP } from "@/lib/adminAiSqlTool";
+
 type AdminAiBackendMode = "rule_based" | "ollama" | "llama_cpp";
 
 type RefineInput = {
@@ -9,7 +11,28 @@ type RefineInput = {
   rows: unknown[][];
 };
 
+type LlmMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
 export type AdminAiLlmProvider = "ollama" | "llama_cpp";
+
+type LlmChatSuccess = {
+  ok: true;
+  content: string;
+  model: string;
+  provider: AdminAiLlmProvider;
+};
+
+type LlmChatError = {
+  ok: false;
+  error: string;
+  detail: string;
+  provider: AdminAiLlmProvider;
+};
+
+type LlmChatResult = LlmChatSuccess | LlmChatError;
 
 type RefineSuccess = {
   ok: true;
@@ -26,6 +49,27 @@ type RefineError = {
 };
 
 export type RefineResult = RefineSuccess | RefineError;
+
+export type AdminAiGeneratedSqlPlan = {
+  intentLabel: string;
+  sql: string;
+  maxRows: number;
+  suggestions: string[];
+};
+
+export type AdminAiGeneratedSqlPlanResult =
+  | {
+      ok: true;
+      provider: AdminAiLlmProvider;
+      model: string;
+      plan: AdminAiGeneratedSqlPlan;
+    }
+  | {
+      ok: false;
+      provider: AdminAiLlmProvider;
+      error: string;
+      detail: string;
+    };
 
 function normalizeEnvValue(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -60,6 +104,7 @@ function buildPrompts(input: RefineInput) {
   const systemPrompt = [
     "You are a Thai admin analytics assistant for Heart4Rooms survey data.",
     "You must answer in Thai.",
+    "Use polite masculine Thai particles such as 'ครับ' when appropriate.",
     "Use only the provided SQL result and draft answer.",
     "Do not invent facts, counts, percentages, or causes.",
     "Keep the answer concise, clear, and suitable for an admin dashboard chat.",
@@ -78,7 +123,12 @@ function buildPrompts(input: RefineInput) {
   return { systemPrompt, userPrompt };
 }
 
-async function refineWithOllama(input: RefineInput): Promise<RefineResult> {
+async function chatWithOllama(options: {
+  messages: LlmMessage[];
+  maxTokens: number;
+  temperature: number;
+  responseFormat?: "json_object";
+}): Promise<LlmChatResult> {
   const baseUrl = normalizeEnvValue(process.env.OLLAMA_BASE_URL);
   const model = normalizeEnvValue(process.env.OLLAMA_MODEL);
   if (!baseUrl || !model) {
@@ -90,8 +140,6 @@ async function refineWithOllama(input: RefineInput): Promise<RefineResult> {
     };
   }
 
-  const { systemPrompt, userPrompt } = buildPrompts(input);
-
   let response: Response;
   try {
     response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/chat`, {
@@ -100,15 +148,13 @@ async function refineWithOllama(input: RefineInput): Promise<RefineResult> {
       body: JSON.stringify({
         model,
         stream: false,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+        messages: options.messages,
         options: {
-          temperature: 0.1,
-          num_predict: 220,
+          temperature: options.temperature,
+          num_predict: options.maxTokens,
         },
         keep_alive: "15m",
+        ...(options.responseFormat ? { format: "json" } : {}),
       }),
     });
   } catch (error) {
@@ -157,7 +203,12 @@ async function refineWithOllama(input: RefineInput): Promise<RefineResult> {
   };
 }
 
-async function refineWithLlamaCpp(input: RefineInput): Promise<RefineResult> {
+async function chatWithLlamaCpp(options: {
+  messages: LlmMessage[];
+  maxTokens: number;
+  temperature: number;
+  responseFormat?: "json_object";
+}): Promise<LlmChatResult> {
   const baseUrl = normalizeEnvValue(process.env.LLAMA_CPP_BASE_URL);
   const apiKey = normalizeEnvValue(process.env.LLAMA_CPP_API_KEY);
   const requestModel = normalizeEnvValue(process.env.LLAMA_CPP_MODEL) ?? "local-model";
@@ -170,7 +221,6 @@ async function refineWithLlamaCpp(input: RefineInput): Promise<RefineResult> {
     };
   }
 
-  const { systemPrompt, userPrompt } = buildPrompts(input);
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
   const endpoint = normalizedBaseUrl.endsWith("/v1")
     ? `${normalizedBaseUrl}/chat/completions`
@@ -191,12 +241,10 @@ async function refineWithLlamaCpp(input: RefineInput): Promise<RefineResult> {
       body: JSON.stringify({
         model: requestModel,
         stream: false,
-        temperature: 0.1,
-        max_tokens: 220,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+        temperature: options.temperature,
+        max_tokens: options.maxTokens,
+        messages: options.messages,
+        ...(options.responseFormat ? { response_format: { type: options.responseFormat } } : {}),
       }),
     });
   } catch (error) {
@@ -258,18 +306,23 @@ async function refineWithLlamaCpp(input: RefineInput): Promise<RefineResult> {
   return {
     ok: true,
     provider: "llama_cpp",
-    answer: content,
+    content,
     model: responseModel,
   };
 }
 
-export async function refineAdminAiAnswerWithLlm(input: RefineInput): Promise<RefineResult> {
+async function chatWithConfiguredLlm(options: {
+  messages: LlmMessage[];
+  maxTokens: number;
+  temperature: number;
+  responseFormat?: "json_object";
+}): Promise<LlmChatResult> {
   const backendMode = getAdminAiBackendMode();
   if (backendMode === "ollama") {
-    return refineWithOllama(input);
+    return chatWithOllama(options);
   }
   if (backendMode === "llama_cpp") {
-    return refineWithLlamaCpp(input);
+    return chatWithLlamaCpp(options);
   }
 
   return {
@@ -277,5 +330,143 @@ export async function refineAdminAiAnswerWithLlm(input: RefineInput): Promise<Re
     provider: "llama_cpp",
     error: "LLM_BACKEND_NOT_ENABLED",
     detail: "Set ADMIN_AI_BACKEND=ollama or ADMIN_AI_BACKEND=llama_cpp to enable LLM refinement",
+  };
+}
+
+function sanitizePlanSuggestions(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function parseGeneratedSqlPlan(rawContent: string): AdminAiGeneratedSqlPlan | null {
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    const firstBrace = rawContent.indexOf("{");
+    const lastBrace = rawContent.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      try {
+        parsed = JSON.parse(rawContent.slice(firstBrace, lastBrace + 1));
+      } catch {
+        parsed = null;
+      }
+    }
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+  const sql = typeof parsed.sql === "string" ? parsed.sql.trim() : "";
+  const intentLabel = typeof parsed.intent_label === "string" && parsed.intent_label.trim()
+    ? parsed.intent_label.trim()
+    : typeof parsed.intentLabel === "string" && parsed.intentLabel.trim()
+      ? parsed.intentLabel.trim()
+      : "วิเคราะห์คำถามข้อมูล";
+  const maxRowsRaw = typeof parsed.max_rows === "number"
+    ? parsed.max_rows
+    : typeof parsed.maxRows === "number"
+      ? parsed.maxRows
+      : 20;
+
+  if (!sql) return null;
+
+  return {
+    intentLabel,
+    sql,
+    maxRows: Math.max(1, Math.min(Math.trunc(maxRowsRaw), 100)),
+    suggestions: sanitizePlanSuggestions(parsed.suggestions),
+  };
+}
+
+export async function generateAdminAiSqlPlanWithLlm(input: {
+  question: string;
+  previousAttemptSql?: string;
+  previousError?: string;
+}): Promise<AdminAiGeneratedSqlPlanResult> {
+  const schemaHelpText = JSON.stringify(HEART4_ADMIN_AI_SCHEMA_HELP, null, 2);
+  const repairText =
+    input.previousAttemptSql && input.previousError
+      ? [
+          "Previous attempt failed.",
+          `failed_sql: ${input.previousAttemptSql}`,
+          `error_feedback: ${input.previousError}`,
+          "Return a corrected plan.",
+        ].join("\n")
+      : "This is the first attempt.";
+
+  const systemPrompt = [
+    "You are a SQL planner for a Thai analytics assistant.",
+    "Your job is to convert the user question into exactly one read-only SQL query.",
+    "You must return JSON only.",
+    "The SQL must start with SELECT or WITH.",
+    "Do not use semicolons.",
+    "Use only these relations: public.heart4rooms_ai_core_v2 and public.heart4rooms_ai_open_text_v1.",
+    "Keep max_rows between 5 and 100.",
+    "Prefer human-readable grouped output using label columns when possible.",
+  ].join(" ");
+
+  const userPrompt = [
+    `user_question: ${input.question}`,
+    repairText,
+    "Allowed schema help:",
+    schemaHelpText,
+    "Return JSON with keys: intent_label, sql, max_rows, suggestions.",
+    "suggestions should be 2-4 short Thai follow-up questions.",
+  ].join("\n\n");
+
+  const llmResult = await chatWithConfiguredLlm({
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    maxTokens: 420,
+    temperature: 0,
+    responseFormat: "json_object",
+  });
+
+  if (!llmResult.ok) {
+    return llmResult;
+  }
+
+  const plan = parseGeneratedSqlPlan(llmResult.content);
+  if (!plan) {
+    return {
+      ok: false,
+      provider: llmResult.provider,
+      error: "LLM_SQL_PLAN_PARSE_FAILED",
+      detail: "The LLM did not return a valid SQL plan JSON payload",
+    };
+  }
+
+  return {
+    ok: true,
+    provider: llmResult.provider,
+    model: llmResult.model,
+    plan,
+  };
+}
+
+export async function refineAdminAiAnswerWithLlm(input: RefineInput): Promise<RefineResult> {
+  const { systemPrompt, userPrompt } = buildPrompts(input);
+  const llmResult = await chatWithConfiguredLlm({
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    maxTokens: 220,
+    temperature: 0.1,
+  });
+
+  if (!llmResult.ok) return llmResult;
+
+  return {
+    ok: true,
+    answer: llmResult.content,
+    model: llmResult.model,
+    provider: llmResult.provider,
   };
 }
