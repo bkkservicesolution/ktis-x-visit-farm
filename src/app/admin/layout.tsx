@@ -60,6 +60,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </Link>
 
             <Link
+              href="/admin/ai"
+              className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
+            >
+              AI ผู้ช่วยข้อมูล
+              <span className="text-xs text-muted">AI</span>
+            </Link>
+
+            <Link
               href="/admin/promoters"
               className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
             >
