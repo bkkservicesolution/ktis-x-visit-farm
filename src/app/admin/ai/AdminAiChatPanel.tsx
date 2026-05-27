@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type ChatSuccessResponse = {
   ok: true;
-  mode: "rule_based_v1" | "ollama_refine_v1" | "llama_cpp_refine_v1" | "freeform_sql_v1";
+  mode: "rag_v1";
   question: string;
   intent: {
     id: string;
@@ -26,7 +26,7 @@ type ChatSuccessResponse = {
     relations: string[];
   };
   llm: null | {
-    provider: "ollama" | "llama_cpp";
+    provider: "gemini";
     model: string;
   };
   suggestions: string[];
@@ -56,18 +56,6 @@ type ChatMessage =
     };
 
 export function AdminAiChatPanel() {
-  const quickQuestions = useMemo(
-    () => [
-      "มีคนไม่เคยได้ยินเรื่องหัวใจ 4 ห้องกี่คน",
-      "สรุปคำตอบข้อ 1 ให้หน่อย",
-      "โรคอ้อยที่ชาวไร่เจอมีอะไรบ้าง",
-      "มีกี่รายที่กังวลเรื่องราคาอ้อย",
-      "สรุปความกังวลเรื่องราคาอ้อย",
-      "ค่าเฉลี่ยข้อ 29 คือเท่าไร",
-    ],
-    [],
-  );
-
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState(false);
   const [inputRows, setInputRows] = useState(1);
@@ -75,7 +63,7 @@ export function AdminAiChatPanel() {
     {
       id: "intro-assistant",
       role: "assistant",
-      text: "สวัสดีครับ ผมพร้อมช่วยตอบคำถามจากข้อมูลจริงของแบบสอบถามหัวใจ 4 ห้อง คุณพิมพ์ถามได้เลยตามธรรมชาติ แล้วผมจะไปค้นคำตอบจากระบบให้",
+      text: "สวัสดีครับ ผมพร้อมช่วยตอบคำถามจากข้อมูลจริงของแบบสอบถามหัวใจ 4 ห้อง โดยค้นหาข้อมูลที่เกี่ยวข้องจากฐานความรู้ แล้วสรุปให้อ่านง่าย คุณพิมพ์ถามได้เลยครับ",
     },
   ]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -87,7 +75,7 @@ export function AdminAiChatPanel() {
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant")?.text;
   const mascotSpeech = pending
     ? "กำลังค้นคำตอบจากข้อมูลจริงของแบบสอบถามให้อยู่นะครับ..."
-    : latestAssistantMessage ?? "พิมพ์ถามได้เลย เช่น มีคนไม่เคยได้ยินเรื่องหัวใจ 4 ห้องกี่คน";
+    : latestAssistantMessage ?? "พิมพ์ถามเป็นประโยคธรรมชาติได้เลยครับ ระบบจะค้นจากฐานความรู้ RAG แล้วสรุปให้";
 
   async function submitQuestion(sourceQuestion?: string) {
     const nextQuestion = (sourceQuestion ?? question).trim();
@@ -215,23 +203,10 @@ export function AdminAiChatPanel() {
                 <div className="text-xs font-medium tracking-wide text-muted">Natural Language Analytics Chat</div>
                 <h3 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">ถามคำถามเหมือนคุยกับผู้ช่วยจริง</h3>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-                  ระบบจะตีความคำถามของคุณ, สร้าง SQL แบบอ่านอย่างเดียวจาก schema ที่อนุญาต, ดึงข้อมูลจริงจากแบบสอบถาม แล้วสรุปกลับมาให้อ่านง่าย
+                  ระบบจะค้นหาข้อมูลที่เกี่ยวข้องจากฐานความรู้ (RAG) ของแบบสอบถาม แล้วให้ AI สรุปคำตอบจากข้อมูลที่ค้นได้เท่านั้น
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                {quickQuestions.slice(0, 3).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    disabled={pending}
-                    onClick={() => void submitQuestion(item)}
-                    className="inline-flex items-center justify-center rounded-full border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-60"
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
 
@@ -336,7 +311,7 @@ export function AdminAiChatPanel() {
                   }}
                   rows={inputRows}
                   spellCheck={false}
-                  placeholder="ถามเรื่องข้อมูลหัวใจ 4 ห้องได้เลย เช่น ชาวไร่กังวลเรื่องราคาอ้อยอะไรบ้าง"
+                  placeholder="ถามเรื่องข้อมูลหัวใจ 4 ห้องได้เลย (ถามเป็นประโยคสนทนา)"
                   className="w-full resize-none border-0 bg-transparent px-2 py-2 text-sm leading-7 text-foreground outline-none placeholder:text-zinc-400"
                 />
 
@@ -351,7 +326,7 @@ export function AdminAiChatPanel() {
                           {
                             id: "intro-assistant",
                             role: "assistant",
-                            text: "สวัสดีครับ ผมพร้อมช่วยตอบคำถามจากข้อมูลจริงของแบบสอบถามหัวใจ 4 ห้อง คุณพิมพ์ถามได้เลยตามธรรมชาติ แล้วผมจะไปค้นคำตอบจากระบบให้",
+                            text: "สวัสดีครับ ผมพร้อมช่วยตอบคำถามจากข้อมูลจริงของแบบสอบถามหัวใจ 4 ห้อง โดยค้นหาข้อมูลที่เกี่ยวข้องจากฐานความรู้ แล้วสรุปให้อ่านง่าย คุณพิมพ์ถามได้เลยครับ",
                           },
                         ])
                       }

@@ -10,7 +10,7 @@ export default function AdminAiPage() {
             <div className="text-xs font-medium tracking-wide text-muted">Admin • AI Assistant</div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">AI ผู้ช่วยข้อมูลหัวใจ 4 ห้อง</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-              ถามคำถามจากข้อมูลจริงของแบบสอบถามได้โดยตรง ระบบจะเลือกข้อมูลที่เกี่ยวข้องจากฐานข้อมูลแล้วสรุปกลับมาในรูปแบบแชท
+              ถามคำถามจากข้อมูลจริงของแบบสอบถามได้โดยตรง ระบบจะค้นหาข้อมูลที่เกี่ยวข้องจากฐานความรู้ RAG แล้วสรุปกลับมาในรูปแบบแชท
             </p>
           </div>
 
