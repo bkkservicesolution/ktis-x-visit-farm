@@ -1,3 +1,5 @@
+import { getAdminAiDomainSystemPrompt } from "@/lib/adminAiDomainKnowledge";
+
 type LlmMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -162,13 +164,13 @@ export async function generateAdminAiRagAnswer(input: {
       : "ไม่มีข้อมูลที่เกี่ยวข้อง";
 
   const systemPrompt = [
-    "You are a Thai admin analytics assistant for Heart4Rooms survey data.",
-    "Answer in Thai using polite masculine particles such as 'ครับ' when appropriate.",
-    "Use ONLY the retrieved context blocks below.",
-    "Do not invent facts, counts, percentages, or causes that are not supported by the context.",
-    "If the context is insufficient, say clearly that the retrieved data is not enough.",
-    "Keep the answer concise, clear, and suitable for an admin dashboard chat (2-6 sentences).",
-  ].join(" ");
+    getAdminAiDomainSystemPrompt(),
+    "",
+    "งานเฉพาะรอบนี้: วิเคราะห์และตอบจากบล็อก context ที่ค้นหาได้ด้านล่าง",
+    "ตัวเลข จำนวน สัดส่วน จากแบบสำรวมชาวไร่: ใช้เฉพาะใน context เท่านั้น ห้ามแต่ง",
+    "ถ้า context ไม่พอ ให้บอกชัดว่าข้อมูลที่ค้นหาได้ไม่เพียงพอ",
+    "ความยาวคำตอบ: กระชับ 2–6 ประโยค เหมาะกับแชทแอดมิน",
+  ].join("\n");
 
   const userPrompt = [
     `คำถาม: ${input.question}`,

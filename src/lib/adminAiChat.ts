@@ -1,6 +1,9 @@
 import { embedTextWithGemini } from "@/lib/adminAiEmbeddings";
 import { type AdminAiLlmProvider, generateAdminAiRagAnswer } from "@/lib/adminAiLlmBackend";
 import { getRagChunkCount, matchRagChunks } from "@/lib/adminAiRagStore";
+import { tryAnswerHarvestStatsQuestion } from "@/lib/adminAiHarvestStats";
+import { tryAnswerDomainKnowledgeQuestion } from "@/lib/adminAiDomainKnowledge";
+import { tryAnswerSurveyMetaQuestion } from "@/lib/adminAiSurveyMeta";
 
 export type AdminAiChatSuccess = {
   ok: true;
@@ -172,6 +175,105 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
       status: 400,
       error: "EMPTY_QUESTION",
       message: "กรุณาพิมพ์คำถามก่อนส่ง",
+    };
+  }
+
+  const harvestAnswer = tryAnswerHarvestStatsQuestion(trimmed);
+  if (harvestAnswer) {
+    return {
+      ok: true,
+      status: 200,
+      mode: "rag_v1",
+      question: trimmed,
+      intent: {
+        id: "harvest_stats",
+        label: "ข้อมูลการเก็บเกี่ยว 2568-2569 (จาก Excel)",
+        confidence: 1,
+        matched_keywords: [],
+      },
+      answer: harvestAnswer,
+      sql: "",
+      max_rows: 0,
+      result: {
+        columns: [],
+        rows: [],
+        row_count: 0,
+        truncated: false,
+        duration_ms: 0,
+        normalized_sql: "",
+        relations: ["harvest-stats-2568-2569.json"],
+      },
+      llm: {
+        provider: "gemini",
+        model: "harvest_stats_v1",
+      },
+      suggestions: [],
+    };
+  }
+
+  const domainAnswer = tryAnswerDomainKnowledgeQuestion(trimmed);
+  if (domainAnswer) {
+    return {
+      ok: true,
+      status: 200,
+      mode: "rag_v1",
+      question: trimmed,
+      intent: {
+        id: "domain_knowledge",
+        label: "ความรู้องค์กร KTIS / หัวใจ 4 ห้อง",
+        confidence: 1,
+        matched_keywords: [],
+      },
+      answer: domainAnswer,
+      sql: "",
+      max_rows: 0,
+      result: {
+        columns: [],
+        rows: [],
+        row_count: 0,
+        truncated: false,
+        duration_ms: 0,
+        normalized_sql: "",
+        relations: ["adminAiDomainKnowledge"],
+      },
+      llm: {
+        provider: "gemini",
+        model: "domain_knowledge_v1",
+      },
+      suggestions: [],
+    };
+  }
+
+  const metaAnswer = tryAnswerSurveyMetaQuestion(trimmed);
+  if (metaAnswer) {
+    return {
+      ok: true,
+      status: 200,
+      mode: "rag_v1",
+      question: trimmed,
+      intent: {
+        id: "survey_schema",
+        label: "โครงสร้างแบบสอบถาม (จากแคตตาล็อก)",
+        confidence: 1,
+        matched_keywords: [],
+      },
+      answer: metaAnswer,
+      sql: "",
+      max_rows: 0,
+      result: {
+        columns: [],
+        rows: [],
+        row_count: 0,
+        truncated: false,
+        duration_ms: 0,
+        normalized_sql: "",
+        relations: ["heart4SurveyCatalog"],
+      },
+      llm: {
+        provider: "gemini",
+        model: "survey_catalog_v1",
+      },
+      suggestions: [],
     };
   }
 

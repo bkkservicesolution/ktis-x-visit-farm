@@ -2,7 +2,7 @@
 
 ## Overview
 
-Admin chat is **RAG only**: embed the user question, retrieve similar chunks from `heart4rooms_ai_chunks`, then ask Gemini to answer **only** from that context. There is no rule-based intent layer and no LLM-generated SQL.
+Admin chat is **RAG + fixed domain knowledge**: embed the user question, retrieve similar chunks from `heart4rooms_ai_chunks`, then ask Gemini with KTIS / Smart Farmer / หัวใจ 4 ห้อง context (`src/lib/adminAiDomainKnowledge.ts`). Survey structure questions and common domain definitions are answered deterministically without RAG.
 
 ## Environment
 
@@ -30,7 +30,28 @@ After deploy, as **admin** (session cookie):
 POST /api/admin/ai/rag/reindex
 ```
 
-This reads `heart4rooms_surveys`, fills `heart4rooms_ai_decoded_facts`, and re-embeds into `heart4rooms_ai_chunks`. Re-run after large survey imports.
+This embeds **survey schema** (38 chunks), **domain knowledge** (~6 chunks), then reads `heart4rooms_surveys`, fills `heart4rooms_ai_decoded_facts`, and re-embeds farmer answers. Re-run after large survey imports or when updating `adminAiDomainKnowledge.ts`.
+
+**Domain knowledge works without full reindex** for definition questions (e.g. “หัวใจ 4 ห้อง คืออะไร”) via the built-in handler + Gemini system prompt. Full reindex adds domain chunks to RAG for mixed questions.
+
+## Harvest stats Excel (2568-2569)
+
+Company-level harvest data (area, cane, burned %, CCS, trucks) is stored in the repo — **no Supabase table required**:
+
+| File | Role |
+|------|------|
+| `data/harvest-stats-2568-2569.xlsx` | Source spreadsheet (replace when updated) |
+| `data/harvest-stats-2568-2569.json` | Parsed numbers used by the app |
+
+After replacing the `.xlsx`:
+
+```bash
+npx tsx scripts/import-harvest-stats-xlsx.ts
+```
+
+Then deploy (JSON is bundled). Optional: reindex to refresh ~4 `harvest_stats` RAG chunks.
+
+Questions like “พื้นที่เก็บเกี่ยวปี 2568-2569” or “อ้อยไฟไหม้ KTIS” are answered from JSON immediately without reindex.
 
 ## Removed legacy
 
