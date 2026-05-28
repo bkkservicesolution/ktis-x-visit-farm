@@ -3,6 +3,7 @@ import { tryAnswerHarvestStatsQuestion } from "@/lib/adminAiHarvestStats";
 import { tryAnswerDomainKnowledgeQuestion } from "@/lib/adminAiDomainKnowledge";
 import { tryAnswerSurveyMetaQuestion } from "@/lib/adminAiSurveyMeta";
 import { tryAnswerSurveyAggregateQuestion } from "@/lib/adminAiSurveyAggregates";
+import { tryAnswerContractLookup } from "@/lib/adminAiContractLookup";
 import { tryAnswerSurveyListQuestion } from "@/lib/adminAiSurveyListQuery";
 
 export type AdminAiChatSuccess = {
@@ -90,7 +91,10 @@ function answerWithGuidance(question: string): AdminAiChatSuccess {
     },
     [
       "ยังจับคำถามนี้ไม่ชัดพอครับ ลองระบุเลขข้อหรือหัวข้อให้ชัดขึ้น เช่น",
-      "• มีชาวไร่คนไหนบ้างที่มีวัชพืช / หญ้ารก / โรค / ศัตรูพืช / ขาดน้ำ",
+      "• ขอพิกัดเลขที่สัญญา 013007",
+      "• ชาวไร่ใดบ้างที่จัดการวัชพืชไม่ได้ หญ้ารก และขาดน้ำ (ครบทุกข้อ)",
+      "• ชาวไร่รายใดควรให้ความช่วยเหลือด้านแหล่งน้ำ / ปุ๋ย / วัชพืช",
+      "• มีชาวไร่คนไหนบ้างที่มีปัญหาด้านปุ๋ย",
       "• มีกี่แปลงที่พบศัตรูพืช / วัชพืชร้ายแรง",
       "• ส่วนใหญ่เลือกวิธีจัดการวัชพืชแบบไหน (ข้อ 3)",
       "• % อ้อยไฟไหม้ปี 2568",
@@ -182,6 +186,32 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
       ["heart4SurveyCatalog"],
       "survey_catalog_v1",
     );
+  }
+
+  try {
+    const contractAnswer = await tryAnswerContractLookup(trimmed);
+    if (contractAnswer) {
+      return successFromAnswer(
+        trimmed,
+        {
+          id: "contract_lookup",
+          label: "เช็คอิน — พิกัดและเวลาถ่ายรูป (ตามเลขสัญญา)",
+          confidence: 1,
+          matched_keywords: [],
+        },
+        contractAnswer,
+        ["heart4rooms_surveys_snapshot_v1"],
+        "contract_lookup_v1",
+      );
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      status: 500,
+      error: "CONTRACT_LOOKUP_FAILED",
+      message: "ค้นหาข้อมูลเลขสัญญาไม่สำเร็จ",
+      detail: error instanceof Error ? error.message : "unknown error",
+    };
   }
 
   try {
