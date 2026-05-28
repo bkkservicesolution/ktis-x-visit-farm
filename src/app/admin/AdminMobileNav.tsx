@@ -5,20 +5,25 @@ import { useEffect, useMemo, useState } from "react";
 
 type NavItem = { href: string; label: string; meta?: string };
 
-export function AdminMobileNav({ role }: { role: string | null }) {
+export function AdminMobileNav({ role, showRagNav = false }: { role: string | null; showRagNav?: boolean }) {
   const [open, setOpen] = useState(false);
 
-  const items = useMemo<NavItem[]>(
-    () => [
+  const items = useMemo<NavItem[]>(() => {
+    const base: NavItem[] = [
       { href: "/form", label: "กรอกฟอร์ม", meta: "form" },
       { href: "/admin/dashboard", label: "แบบประเมินศักยภาพไร่", meta: "Onsite" },
       { href: "/admin/heart4rooms", label: "แบบสอบถามหัวใจ 4 ห้อง", meta: "Surveys" },
-      { href: "/admin/ai", label: "AI ผู้ช่วยข้อมูล", meta: "AI" },
+      { href: "/admin/ai", label: "AI ผู้ช่วยข้อมูล", meta: "Chat" },
+    ];
+    if (showRagNav) {
+      base.push({ href: "/admin/ai/rag", label: "จัดการ RAG Index", meta: "Index" });
+    }
+    base.push(
       { href: "/admin/promoters", label: "รายชื่อนักส่งเสริม", meta: "Promoters" },
       { href: "/admin/users", label: "บัญชีผู้ใช้", meta: "Users" },
-    ],
-    [],
-  );
+    );
+    return base;
+  }, [showRagNav]);
 
   useEffect(() => {
     if (!open) return;

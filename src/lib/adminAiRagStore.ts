@@ -25,9 +25,11 @@ import {
 const EMBED_BATCH_SIZE = 12;
 const EMBED_BATCH_COOLDOWN_MS = 450;
 const INSERT_BATCH_SIZE = 50;
+// Vector inserts can be slow; keep this small to avoid Postgres statement timeout.
+const CHUNK_INSERT_BATCH_SIZE = 6;
 const SURVEY_PAGE_SIZE = 100;
 
-type SurveyRowSelect = Heart4SurveyRowForDecode;
+type SurveyRowSelect = Heart4SurveyRowForDecode & { snapshot_cutoff?: string | null };
 
 export type RagChunkInsert = {
   survey_id: string | null;
@@ -88,10 +90,47 @@ function buildDecodedFactChunkContent(survey: SurveyRowSelect, fact: DecodedFact
   return lines.filter((x) => x !== null).join("\n");
 }
 
+function buildSurveySummaryChunkContent(survey: SurveyRowSelect, facts: DecodedFactLine[]): string {
+  const farmer = `${survey.farmer_first_name} ${survey.farmer_last_name}`.trim();
+  const header = [
+    "[สรุปแบบสำรวจหัวใจ 4 ห้อง — 1 แบบสำรวจ/1 chunk]",
+    survey.snapshot_cutoff ? `snapshot_cutoff: ${survey.snapshot_cutoff}` : null,
+    `survey_id: ${survey.id}`,
+    `วันที่กรอก: ${survey.created_at}`,
+    `ชาวไร่: ${farmer}`,
+    `สัญญา: ${survey.contract_no}`,
+    `ผู้กรอก: ${survey.submitter_display_name}`,
+  ].filter(Boolean);
+
+  const body: string[] = [];
+  for (const fact of facts) {
+    body.push(buildDecodedFactChunkContent(survey, fact));
+    body.push("\n---\n");
+  }
+
+  return `${header.join("\n")}\n\n${body.join("\n")}`.trim();
+}
+
+async function getAlreadyIndexedSurveyIds(surveyIds: string[]): Promise<Set<string>> {
+  if (surveyIds.length === 0) return new Set();
+  const { data, error } = await supabaseAdmin()
+    .from("heart4rooms_ai_chunks")
+    .select("survey_id")
+    .in("survey_id", surveyIds)
+    .eq("chunk_kind", "survey_summary")
+    .limit(surveyIds.length);
+  if (error) throw new Error(error.message);
+  const out = new Set<string>();
+  for (const row of (data ?? []) as Array<{ survey_id: string | null }>) {
+    if (row.survey_id) out.add(String(row.survey_id));
+  }
+  return out;
+}
+
 async function fetchSurveyPage(offset: number): Promise<SurveyRowSelect[]> {
   const { data, error } = await supabaseAdmin()
-    .from("heart4rooms_surveys")
-    .select("id, created_at, farmer_first_name, farmer_last_name, contract_no, submitter_display_name, answers")
+    .from("heart4rooms_surveys_snapshot_v1")
+    .select("id, created_at, farmer_first_name, farmer_last_name, contract_no, submitter_display_name, answers, snapshot_cutoff")
     .order("created_at", { ascending: true })
     .range(offset, offset + SURVEY_PAGE_SIZE - 1);
 
@@ -120,6 +159,11 @@ async function insertDecodedFactBatch(rows: DecodedFactInsert[]): Promise<void> 
   }
 }
 
+function isRetryableDbInsertFailure(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("statement timeout") || m.includes("canceling statement") || m.includes("timeout");
+}
+
 async function insertChunkBatch(rows: Omit<RagChunkInsert, "embedded_at">[]): Promise<void> {
   if (rows.length === 0) return;
 
@@ -129,9 +173,16 @@ async function insertChunkBatch(rows: Omit<RagChunkInsert, "embedded_at">[]): Pr
     embedded_at: embeddedAt,
   }));
 
-  const { error } = await supabaseAdmin().from("heart4rooms_ai_chunks").insert(payload);
-  if (error) {
-    throw new Error(error.message);
+  // Use upsert so incremental runs can safely re-run without duplicate errors.
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const { error } = await supabaseAdmin()
+      .from("heart4rooms_ai_chunks")
+      .upsert(payload, { onConflict: "content_hash", ignoreDuplicates: true });
+    if (!error) return;
+    if (attempt >= 5 || !isRetryableDbInsertFailure(error.message)) {
+      throw new Error(error.message);
+    }
+    await new Promise((r) => setTimeout(r, 800 * attempt));
   }
 }
 
@@ -176,6 +227,8 @@ export type ReindexRagResult =
     }
   | { ok: false; error: string; detail: string };
 
+export type ReindexMode = "full" | "incremental";
+
 /**
  * Truncates chunks + decoded facts, re-reads heart4rooms_surveys, writes decoded rows and embeddings.
  * Requires `heart4rooms_ai_decoded_facts` + updated `heart4rooms_ai_rag_truncate_v1` (see supabase/heart4rooms_ai_decoded_facts_v1.sql).
@@ -184,8 +237,9 @@ function logReindexProgress(message: string): void {
   console.log(`[heart4rooms RAG reindex] ${message}`);
 }
 
-export async function reindexHeart4RoomsRag(): Promise<ReindexRagResult> {
+export async function reindexHeart4RoomsRag(input?: { mode?: ReindexMode }): Promise<ReindexRagResult> {
   const startedAt = Date.now();
+  const mode: ReindexMode = input?.mode ?? "full";
   logReindexProgress("started (truncate + decode + embed — may take many minutes)");
 
   const catalogCheck = verifyHeart4SurveyCatalog();
@@ -215,13 +269,17 @@ export async function reindexHeart4RoomsRag(): Promise<ReindexRagResult> {
     };
   }
 
-  const { error: truncateError } = await supabaseAdmin().rpc("heart4rooms_ai_rag_truncate_v1");
-  if (truncateError) {
-    return {
-      ok: false,
-      error: "RAG_TRUNCATE_FAILED",
-      detail: truncateError.message,
-    };
+  if (mode === "full") {
+    const { error: truncateError } = await supabaseAdmin().rpc("heart4rooms_ai_rag_truncate_v1");
+    if (truncateError) {
+      return {
+        ok: false,
+        error: "RAG_TRUNCATE_FAILED",
+        detail: truncateError.message,
+      };
+    }
+  } else {
+    logReindexProgress("mode=incremental (no truncate; will only index missing surveys)");
   }
 
   const schemaResult = await embedStaticKnowledgeChunks({
@@ -290,9 +348,11 @@ export async function reindexHeart4RoomsRag(): Promise<ReindexRagResult> {
     logReindexProgress(`loaded survey page (total surveys so far: ${surveyRows})`);
 
     const decodedBatch: DecodedFactInsert[] = [];
-    const pendingMeta: Array<{ survey: SurveyRowSelect; fact: DecodedFactLine }> = [];
+    const summaries: Array<{ survey: SurveyRowSelect; facts: DecodedFactLine[] }> = [];
+    const existing = await getAlreadyIndexedSurveyIds(page.map((p) => p.id));
 
     for (const survey of page) {
+      if (existing.has(survey.id)) continue;
       const facts = decodeHeart4SurveyForAdminAi(survey);
       for (const fact of facts) {
         decodedBatch.push({
@@ -304,8 +364,8 @@ export async function reindexHeart4RoomsRag(): Promise<ReindexRagResult> {
           field_key: fact.field_key,
           human_text: fact.human_text,
         });
-        pendingMeta.push({ survey, fact });
       }
+      summaries.push({ survey, facts });
     }
 
     for (let i = 0; i < decodedBatch.length; i += INSERT_BATCH_SIZE) {
@@ -314,26 +374,26 @@ export async function reindexHeart4RoomsRag(): Promise<ReindexRagResult> {
     decodedFactRows += decodedBatch.length;
 
     type PendingChunk = Omit<RagChunkInsert, "embedding" | "embedded_at">;
-    const pending: PendingChunk[] = pendingMeta.map(({ survey, fact }) => {
-      const content = buildDecodedFactChunkContent(survey, fact);
+    const pending: PendingChunk[] = summaries.map(({ survey, facts }, index) => {
+      const content = buildSurveySummaryChunkContent(survey, facts);
       return {
         survey_id: survey.id,
         created_at: survey.created_at,
-        section_key: fact.section_key,
-        section_label: fact.section_label,
-        question_key: fact.question_key,
-        question_label: fact.question_key === "meta" ? "ข้อมูลแบบสำรวจ" : heart4QuestionTitleTh(fact.question_key),
-        field_key: fact.field_key,
+        section_key: "survey",
+        section_label: "แบบสำรวจหัวใจ 4 ห้อง",
+        question_key: "survey_summary",
+        question_label: "สรุปแบบสำรวจ (1 survey/1 chunk)",
+        field_key: null,
         field_label: null,
         text_kind: "decoded",
         choice_code: null,
         choice_label: null,
-        chunk_kind: "decoded_fact",
-        chunk_index: 0,
+        chunk_kind: "survey_summary",
+        chunk_index: index,
         content,
-        content_hash: hashContent([survey.id, fact.question_key, fact.field_key ?? "", fact.human_text]),
+        content_hash: hashContent(["survey_summary", survey.id, survey.snapshot_cutoff ?? ""]),
         token_estimate: estimateTokens(content),
-        source_view: "heart4rooms_ai_decoded_facts",
+        source_view: "heart4rooms_surveys_snapshot_v1",
       };
     });
 
@@ -354,8 +414,8 @@ export async function reindexHeart4RoomsRag(): Promise<ReindexRagResult> {
         embedding: embedResult.embeddings[batchIndex] ?? [],
       }));
 
-      for (let insertIndex = 0; insertIndex < ready.length; insertIndex += INSERT_BATCH_SIZE) {
-        await insertChunkBatch(ready.slice(insertIndex, insertIndex + INSERT_BATCH_SIZE));
+      for (let insertIndex = 0; insertIndex < ready.length; insertIndex += CHUNK_INSERT_BATCH_SIZE) {
+        await insertChunkBatch(ready.slice(insertIndex, insertIndex + CHUNK_INSERT_BATCH_SIZE));
       }
 
       if (index + EMBED_BATCH_SIZE < pending.length) {

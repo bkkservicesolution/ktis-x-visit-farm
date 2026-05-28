@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { KTISX_ROLE_COOKIE, type KtisxRole } from "@/lib/authConstants";
 import { AdminMobileNav } from "@/app/admin/AdminMobileNav";
+import { canAccessAdminAiRag } from "@/lib/adminAiRagAccess";
 
 async function getRole(): Promise<KtisxRole | null> {
   const v = (await cookies()).get(KTISX_ROLE_COOKIE)?.value;
@@ -11,12 +12,13 @@ async function getRole(): Promise<KtisxRole | null> {
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const role = await getRole();
+  const showRagNav = await canAccessAdminAiRag();
 
   return (
     <div className="min-h-screen bg-transparent">
       <div className="mx-auto flex w-full max-w-[1400px] gap-6 px-4 py-8">
         <div className="w-full lg:hidden">
-          <AdminMobileNav role={role} />
+          <AdminMobileNav role={role} showRagNav={showRagNav} />
           <main className="min-w-0">{children}</main>
         </div>
 
@@ -64,8 +66,18 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
             >
               AI ผู้ช่วยข้อมูล
-              <span className="text-xs text-muted">AI</span>
+              <span className="text-xs text-muted">Chat</span>
             </Link>
+
+            {showRagNav ? (
+              <Link
+                href="/admin/ai/rag"
+                className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 font-semibold text-foreground transition hover:bg-foreground/5"
+              >
+                จัดการ RAG Index
+                <span className="text-xs text-muted">Index</span>
+              </Link>
+            ) : null}
 
             <Link
               href="/admin/promoters"

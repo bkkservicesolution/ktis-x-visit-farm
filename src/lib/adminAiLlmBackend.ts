@@ -154,6 +154,46 @@ async function chatWithGemini(options: {
   };
 }
 
+/** สรุปคำตอบจากสถิติทั้งชุด (ไม่ใช่การสุ่มตัวอย่าง) */
+export async function summarizeSurveyStatsWithGemini(input: {
+  question: string;
+  factsText: string;
+}): Promise<RefineResult & { answer?: string }> {
+  const systemPrompt = [
+    getAdminAiDomainSystemPrompt(),
+    "",
+    "งาน: อ่านสถิติแบบสำรวจที่ให้มา แล้วตอบคำถามเป็นภาษาไทยที่อ่านง่าย",
+    "ใช้ตัวเลขจากข้อมูลเท่านั้น ห้ามแต่งหรือเดา",
+    "ไม่ต้องอธิบายแหล่งข้อมูล ไม่ต้องพูดถึง RAG embedding หรือจำนวนตัวอย่าง",
+    "ความยาว 3–8 ประโยค",
+  ].join("\n");
+
+  const userPrompt = [
+    `คำถาม: ${input.question}`,
+    "สถิติจากแบบสำรวจทั้งชุด:",
+    input.factsText,
+    "โปรดสรุปตอบคำถามโดยตรง",
+  ].join("\n\n");
+
+  const llmResult = await chatWithGemini({
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    maxTokens: 520,
+    temperature: 0.2,
+  });
+
+  if (!llmResult.ok) return llmResult;
+
+  return {
+    ok: true,
+    answer: llmResult.content,
+    model: llmResult.model,
+    provider: llmResult.provider,
+  };
+}
+
 export async function generateAdminAiRagAnswer(input: {
   question: string;
   contextBlocks: string[];
@@ -167,7 +207,7 @@ export async function generateAdminAiRagAnswer(input: {
     getAdminAiDomainSystemPrompt(),
     "",
     "งานเฉพาะรอบนี้: วิเคราะห์และตอบจากบล็อก context ที่ค้นหาได้ด้านล่าง",
-    "ตัวเลข จำนวน สัดส่วน จากแบบสำรวมชาวไร่: ใช้เฉพาะใน context เท่านั้น ห้ามแต่ง",
+    "ตัวเลข จำนวน สัดส่วน จากแบบสำรวจชาวไร่: ใช้เฉพาะข้อมูลที่ให้มา ห้ามแต่ง",
     "ถ้า context ไม่พอ ให้บอกชัดว่าข้อมูลที่ค้นหาได้ไม่เพียงพอ",
     "ความยาวคำตอบ: กระชับ 2–6 ประโยค เหมาะกับแชทแอดมิน",
   ].join("\n");

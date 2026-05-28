@@ -1,24 +1,23 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { reindexHeart4RoomsRag } from "@/lib/adminAiRagStore";
-import { KTISX_ROLE_COOKIE, type KtisxRole } from "@/lib/authConstants";
+import { canAccessAdminAiRag } from "@/lib/adminAiRagAccess";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-async function getRole(): Promise<KtisxRole | null> {
-  const v = (await cookies()).get(KTISX_ROLE_COOKIE)?.value;
-  if (v === "user" || v === "admin") return v;
-  return null;
-}
+type RequestBody = {
+  mode?: unknown;
+};
 
-export async function POST() {
-  const role = await getRole();
-  if (role !== "admin") {
+export async function POST(req: Request) {
+  if (!(await canAccessAdminAiRag())) {
     return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
   }
 
-  const result = await reindexHeart4RoomsRag();
+  const body = (await req.json().catch(() => null)) as RequestBody | null;
+  const mode = body?.mode === "incremental" || body?.mode === "full" ? body.mode : undefined;
+
+  const result = await reindexHeart4RoomsRag({ mode });
   if (!result.ok) {
     return NextResponse.json(result, { status: 500 });
   }

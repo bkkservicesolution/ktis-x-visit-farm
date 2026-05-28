@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { AdminAiChatPanel } from "@/app/admin/ai/AdminAiChatPanel";
+import { canAccessAdminAiRag } from "@/lib/adminAiRagAccess";
 
-export default function AdminAiPage() {
+export default async function AdminAiPage() {
+  const showRagNav = await canAccessAdminAiRag();
+
   return (
     <div className="space-y-4">
       <header className="rounded-3xl border border-border bg-card p-6 shadow-sm">
@@ -10,11 +13,19 @@ export default function AdminAiPage() {
             <div className="text-xs font-medium tracking-wide text-muted">Admin • AI Assistant</div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">AI ผู้ช่วยข้อมูลหัวใจ 4 ห้อง</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-              ถามคำถามจากข้อมูลจริงของแบบสอบถามได้โดยตรง ระบบจะค้นหาข้อมูลที่เกี่ยวข้องจากฐานความรู้ RAG แล้วสรุปกลับมาในรูปแบบแชท
+              ถามคำถามจากข้อมูลจริงของแบบสำรวจได้โดยตรง — สถิติรวมทั้งชุด ความรู้องค์กร และโครงสร้างแบบสอบถาม
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {showRagNav ? (
+              <Link
+                href="/admin/ai/rag"
+                className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"
+              >
+                จัดการ RAG Index
+              </Link>
+            ) : null}
             <Link
               href="/admin/heart4rooms"
               className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5"

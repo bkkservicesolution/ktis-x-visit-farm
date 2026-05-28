@@ -228,11 +228,6 @@ export function Heart4RoomsAdminClient() {
     }
   }
 
-  useEffect(() => {
-    void resolveExportApiMode();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   async function cancelExport() {
     if (exportAbortRef.current) {
       closeExportStreams();

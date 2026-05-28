@@ -63,7 +63,7 @@ export function AdminAiChatPanel() {
     {
       id: "intro-assistant",
       role: "assistant",
-      text: "สวัสดีครับ ผมพร้อมช่วยตอบคำถามจากข้อมูลจริงของแบบสอบถามหัวใจ 4 ห้อง โดยค้นหาข้อมูลที่เกี่ยวข้องจากฐานความรู้ แล้วสรุปให้อ่านง่าย คุณพิมพ์ถามได้เลยครับ",
+      text: "สวัสดีครับ ผมพร้อมตอบจากข้อมูลจริงของแบบสำรวจหัวใจ 4 ห้อง — สรุปสถิติทั้งชุด ความรู้ KTIS และรายละเอียดข้อคำถาม คุณพิมพ์ถามได้เลยครับ",
     },
   ]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -75,7 +75,7 @@ export function AdminAiChatPanel() {
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant")?.text;
   const mascotSpeech = pending
     ? "กำลังค้นคำตอบจากข้อมูลจริงของแบบสอบถามให้อยู่นะครับ..."
-    : latestAssistantMessage ?? "พิมพ์ถามเป็นประโยคธรรมชาติได้เลยครับ ระบบจะค้นจากฐานความรู้ RAG แล้วสรุปให้";
+    : latestAssistantMessage ?? "พิมพ์ถามเป็นประโยคธรรมชาติได้เลยครับ เช่น กี่แปลงพบวัชพืช หรือ ข้อ 3 สรุปคำตอบ";
 
   async function submitQuestion(sourceQuestion?: string) {
     const nextQuestion = (sourceQuestion ?? question).trim();
@@ -203,7 +203,7 @@ export function AdminAiChatPanel() {
                 <div className="text-xs font-medium tracking-wide text-muted">Natural Language Analytics Chat</div>
                 <h3 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">ถามคำถามเหมือนคุยกับผู้ช่วยจริง</h3>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-                  ระบบจะค้นหาข้อมูลที่เกี่ยวข้องจากฐานความรู้ (RAG) ของแบบสอบถาม แล้วให้ AI สรุปคำตอบจากข้อมูลที่ค้นได้เท่านั้น
+                  ระบบตอบจากสถิติแบบสำรวจทั้งชุดและความรู้ที่กำหนดไว้ ไม่สุ่มตัวอย่างจากข้อมูล
                 </p>
               </div>
 
@@ -326,7 +326,7 @@ export function AdminAiChatPanel() {
                           {
                             id: "intro-assistant",
                             role: "assistant",
-                            text: "สวัสดีครับ ผมพร้อมช่วยตอบคำถามจากข้อมูลจริงของแบบสอบถามหัวใจ 4 ห้อง โดยค้นหาข้อมูลที่เกี่ยวข้องจากฐานความรู้ แล้วสรุปให้อ่านง่าย คุณพิมพ์ถามได้เลยครับ",
+                            text: "สวัสดีครับ ผมพร้อมตอบจากข้อมูลจริงของแบบสำรวจหัวใจ 4 ห้อง — สรุปสถิติทั้งชุด ความรู้ KTIS และรายละเอียดข้อคำถาม คุณพิมพ์ถามได้เลยครับ",
                           },
                         ])
                       }

@@ -1,9 +1,9 @@
-import { embedTextWithGemini } from "@/lib/adminAiEmbeddings";
-import { type AdminAiLlmProvider, generateAdminAiRagAnswer } from "@/lib/adminAiLlmBackend";
-import { getRagChunkCount, matchRagChunks } from "@/lib/adminAiRagStore";
+import { type AdminAiLlmProvider, summarizeSurveyStatsWithGemini } from "@/lib/adminAiLlmBackend";
 import { tryAnswerHarvestStatsQuestion } from "@/lib/adminAiHarvestStats";
 import { tryAnswerDomainKnowledgeQuestion } from "@/lib/adminAiDomainKnowledge";
 import { tryAnswerSurveyMetaQuestion } from "@/lib/adminAiSurveyMeta";
+import { tryAnswerSurveyAggregateQuestion } from "@/lib/adminAiSurveyAggregates";
+import { tryAnswerSurveyListQuestion } from "@/lib/adminAiSurveyListQuery";
 
 export type AdminAiChatSuccess = {
   ok: true;
@@ -32,12 +32,6 @@ export type AdminAiChatSuccess = {
     provider: AdminAiLlmProvider;
     model: string;
   };
-  rag?: {
-    chunk_count: number;
-    retrieved_count: number;
-    embedding_model: string;
-    top_similarity: number;
-  };
   suggestions: string[];
 };
 
@@ -52,119 +46,83 @@ export type AdminAiChatError = {
 
 export type AdminAiChatResult = AdminAiChatSuccess | AdminAiChatError;
 
-async function answerWithRag(question: string): Promise<AdminAiChatResult> {
-  let chunkCount = 0;
-  try {
-    chunkCount = await getRagChunkCount();
-  } catch (error) {
-    return {
-      ok: false,
-      status: 500,
-      error: "RAG_INDEX_UNAVAILABLE",
-      message: "ยังเชื่อมต่อฐานความรู้ RAG ไม่ได้",
-      detail: error instanceof Error ? error.message : "unknown error",
-    };
-  }
-
-  if (chunkCount === 0) {
-    return {
-      ok: false,
-      status: 400,
-      error: "RAG_INDEX_EMPTY",
-      message: "ยังไม่มีข้อมูลในฐานความรู้ RAG กรุณารันการสร้าง embedding ก่อน",
-      detail:
-        "เรียก POST /api/admin/ai/rag/reindex หลังรัน supabase/heart4rooms_ai_rag_v1.sql และ heart4rooms_ai_decoded_facts_v1.sql ใน Supabase",
-    };
-  }
-
-  const embedResult = await embedTextWithGemini(question);
-  if (!embedResult.ok) {
-    return {
-      ok: false,
-      status: 500,
-      error: embedResult.error,
-      message: "แปลงคำถามเป็น embedding ไม่สำเร็จ",
-      detail: embedResult.detail,
-    };
-  }
-
-  let matchedChunks;
-  try {
-    matchedChunks = await matchRagChunks({
-      embedding: embedResult.embedding,
-      matchCount: 10,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      status: 500,
-      error: "RAG_RETRIEVAL_FAILED",
-      message: "ค้นหาข้อมูลที่เกี่ยวข้องไม่สำเร็จ",
-      detail: error instanceof Error ? error.message : "unknown error",
-    };
-  }
-
-  if (matchedChunks.length === 0) {
-    return {
-      ok: false,
-      status: 400,
-      error: "RAG_NO_MATCHES",
-      message: "ไม่พบข้อมูลที่เกี่ยวข้องกับคำถามนี้",
-    };
-  }
-
-  const llmResult = await generateAdminAiRagAnswer({
-    question,
-    contextBlocks: matchedChunks.map((chunk) => chunk.content),
-  });
-
-  if (!llmResult.ok) {
-    return {
-      ok: false,
-      status: 500,
-      error: llmResult.error,
-      message: "สรุปคำตอบด้วย Gemini ไม่สำเร็จ",
-      detail: llmResult.detail,
-    };
-  }
-
-  const topSimilarity = matchedChunks[0]?.similarity ?? 0;
-
+function successFromAnswer(
+  question: string,
+  intent: AdminAiChatSuccess["intent"],
+  answer: string,
+  relations: string[],
+  model: string,
+): AdminAiChatSuccess {
   return {
     ok: true,
     status: 200,
     mode: "rag_v1",
     question,
-    intent: {
-      id: "rag_retrieval",
-      label: "ค้นหาจากฐานความรู้ RAG",
-      confidence: Math.max(0, Math.min(topSimilarity, 1)),
-      matched_keywords: [],
-    },
-    answer: llmResult.answer,
+    intent,
+    answer,
     sql: "",
-    max_rows: matchedChunks.length,
+    max_rows: 0,
     result: {
-      columns: ["chunk_kind", "question_key", "similarity"],
-      rows: matchedChunks.map((chunk) => [chunk.chunk_kind, chunk.question_key, chunk.similarity]),
-      row_count: matchedChunks.length,
+      columns: [],
+      rows: [],
+      row_count: 0,
       truncated: false,
       duration_ms: 0,
       normalized_sql: "",
-      relations: ["heart4rooms_ai_chunks"],
+      relations,
     },
     llm: {
-      provider: llmResult.provider,
-      model: llmResult.model,
-    },
-    rag: {
-      chunk_count: chunkCount,
-      retrieved_count: matchedChunks.length,
-      embedding_model: embedResult.model,
-      top_similarity: topSimilarity,
+      provider: "gemini",
+      model,
     },
     suggestions: [],
   };
+}
+
+function answerWithGuidance(question: string): AdminAiChatSuccess {
+  return successFromAnswer(
+    question,
+    {
+      id: "guided",
+      label: "แนะนำวิธีถาม",
+      confidence: 1,
+      matched_keywords: [],
+    },
+    [
+      "ยังจับคำถามนี้ไม่ชัดพอครับ ลองระบุเลขข้อหรือหัวข้อให้ชัดขึ้น เช่น",
+      "• มีชาวไร่คนไหนบ้างที่มีวัชพืช / หญ้ารก / โรค / ศัตรูพืช / ขาดน้ำ",
+      "• มีกี่แปลงที่พบศัตรูพืช / วัชพืชร้ายแรง",
+      "• ส่วนใหญ่เลือกวิธีจัดการวัชพืชแบบไหน (ข้อ 3)",
+      "• % อ้อยไฟไหม้ปี 2568",
+    ].join("\n"),
+    [],
+    "guided_v1",
+  );
+}
+
+async function answerFromSurveyStats(
+  question: string,
+  factsText: string,
+  options?: { skipSummarize?: boolean },
+): Promise<AdminAiChatSuccess> {
+  const llm =
+    options?.skipSummarize === true
+      ? { ok: false as const, error: "SKIP", detail: "" }
+      : await summarizeSurveyStatsWithGemini({ question, factsText });
+  const answer = llm.ok && "answer" in llm && llm.answer ? llm.answer : factsText;
+
+  return successFromAnswer(
+    question,
+    {
+      id: "survey_aggregates",
+      label: "สรุปจากแบบสำรวจทั้งชุด",
+      confidence: 1,
+      matched_keywords: [],
+    },
+    answer,
+    ["heart4rooms-survey-aggregates.json"],
+    llm.ok ? llm.model : "survey_aggregates_v1",
+  );
 }
 
 export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
@@ -180,102 +138,71 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
 
   const harvestAnswer = tryAnswerHarvestStatsQuestion(trimmed);
   if (harvestAnswer) {
-    return {
-      ok: true,
-      status: 200,
-      mode: "rag_v1",
-      question: trimmed,
-      intent: {
+    return successFromAnswer(
+      trimmed,
+      {
         id: "harvest_stats",
-        label: "ข้อมูลการเก็บเกี่ยว 2568-2569 (จาก Excel)",
+        label: "ข้อมูลการเก็บเกี่ยว 2568-2569",
         confidence: 1,
         matched_keywords: [],
       },
-      answer: harvestAnswer,
-      sql: "",
-      max_rows: 0,
-      result: {
-        columns: [],
-        rows: [],
-        row_count: 0,
-        truncated: false,
-        duration_ms: 0,
-        normalized_sql: "",
-        relations: ["harvest-stats-2568-2569.json"],
-      },
-      llm: {
-        provider: "gemini",
-        model: "harvest_stats_v1",
-      },
-      suggestions: [],
-    };
+      harvestAnswer,
+      ["harvest-stats-2568-2569.json"],
+      "harvest_stats_v1",
+    );
   }
 
   const domainAnswer = tryAnswerDomainKnowledgeQuestion(trimmed);
   if (domainAnswer) {
-    return {
-      ok: true,
-      status: 200,
-      mode: "rag_v1",
-      question: trimmed,
-      intent: {
+    return successFromAnswer(
+      trimmed,
+      {
         id: "domain_knowledge",
         label: "ความรู้องค์กร KTIS / หัวใจ 4 ห้อง",
         confidence: 1,
         matched_keywords: [],
       },
-      answer: domainAnswer,
-      sql: "",
-      max_rows: 0,
-      result: {
-        columns: [],
-        rows: [],
-        row_count: 0,
-        truncated: false,
-        duration_ms: 0,
-        normalized_sql: "",
-        relations: ["adminAiDomainKnowledge"],
-      },
-      llm: {
-        provider: "gemini",
-        model: "domain_knowledge_v1",
-      },
-      suggestions: [],
-    };
+      domainAnswer,
+      ["adminAiDomainKnowledge"],
+      "domain_knowledge_v1",
+    );
   }
 
   const metaAnswer = tryAnswerSurveyMetaQuestion(trimmed);
   if (metaAnswer) {
-    return {
-      ok: true,
-      status: 200,
-      mode: "rag_v1",
-      question: trimmed,
-      intent: {
+    return successFromAnswer(
+      trimmed,
+      {
         id: "survey_schema",
-        label: "โครงสร้างแบบสอบถาม (จากแคตตาล็อก)",
+        label: "โครงสร้างแบบสอบถาม",
         confidence: 1,
         matched_keywords: [],
       },
-      answer: metaAnswer,
-      sql: "",
-      max_rows: 0,
-      result: {
-        columns: [],
-        rows: [],
-        row_count: 0,
-        truncated: false,
-        duration_ms: 0,
-        normalized_sql: "",
-        relations: ["heart4SurveyCatalog"],
-      },
-      llm: {
-        provider: "gemini",
-        model: "survey_catalog_v1",
-      },
-      suggestions: [],
+      metaAnswer,
+      ["heart4SurveyCatalog"],
+      "survey_catalog_v1",
+    );
+  }
+
+  try {
+    const listFacts = await tryAnswerSurveyListQuestion(trimmed);
+    if (listFacts) {
+      return answerFromSurveyStats(trimmed, listFacts, { skipSummarize: true });
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      status: 500,
+      error: "SURVEY_LIST_QUERY_FAILED",
+      message: "ค้นหารายชื่อแปลงจากแบบสำรวจไม่สำเร็จ",
+      detail: error instanceof Error ? error.message : "unknown error",
     };
   }
 
-  return answerWithRag(trimmed);
+  const aggregateFacts = await tryAnswerSurveyAggregateQuestion(trimmed);
+  if (aggregateFacts) {
+    return answerFromSurveyStats(trimmed, aggregateFacts);
+  }
+
+  return answerWithGuidance(trimmed);
 }
