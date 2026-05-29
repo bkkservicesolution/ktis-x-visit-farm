@@ -1,4 +1,9 @@
-import { type AdminAiLlmProvider, summarizeSurveyStatsWithGemini } from "@/lib/adminAiLlmBackend";
+import {
+  type AdminAiLlmProvider,
+  answerAdminAiOpenQuestion,
+  summarizeSurveyStatsWithGemini,
+} from "@/lib/adminAiLlmBackend";
+import { buildAdminAiSurveyKnowledgeContext } from "@/lib/adminAiOpenChat";
 import { tryAnswerHarvestStatsQuestion } from "@/lib/adminAiHarvestStats";
 import { tryAnswerDomainKnowledgeQuestion } from "@/lib/adminAiDomainKnowledge";
 import { tryAnswerSurveyMetaQuestion } from "@/lib/adminAiSurveyMeta";
@@ -232,6 +237,47 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
   const aggregateFacts = await tryAnswerSurveyAggregateQuestion(trimmed);
   if (aggregateFacts) {
     return answerFromSurveyStats(trimmed, aggregateFacts);
+  }
+
+  try {
+    const knowledgeContext = await buildAdminAiSurveyKnowledgeContext();
+    const open = await answerAdminAiOpenQuestion({
+      question: trimmed,
+      knowledgeContext,
+    });
+
+    if (open.ok && open.answer) {
+      return successFromAnswer(
+        trimmed,
+        {
+          id: "gemini_open",
+          label: "ตอบโดย Gemini (มีความรู้แบบสำรวจใน context)",
+          confidence: 1,
+          matched_keywords: [],
+        },
+        open.answer,
+        ["heart4SurveyCatalog", "heart4rooms-survey-aggregates.json", "adminAiDomainKnowledge"],
+        open.model,
+      );
+    }
+
+    if (!open.ok && open.error !== "GEMINI_NOT_CONFIGURED") {
+      return {
+        ok: false,
+        status: 500,
+        error: open.error,
+        message: "Gemini ตอบคำถามไม่สำเร็จ",
+        detail: open.detail,
+      };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      status: 500,
+      error: "GEMINI_OPEN_CHAT_FAILED",
+      message: "ตอบคำถามด้วย Gemini ไม่สำเร็จ",
+      detail: error instanceof Error ? error.message : "unknown error",
+    };
   }
 
   return answerWithGuidance(trimmed);

@@ -194,6 +194,42 @@ export async function summarizeSurveyStatsWithGemini(input: {
   };
 }
 
+/** ตอบคำถามอิสระ — มีโครงสร้างแบบสำรวจ + สถิติสรุปใน context */
+export async function answerAdminAiOpenQuestion(input: {
+  question: string;
+  knowledgeContext: string;
+}): Promise<RefineResult & { answer?: string }> {
+  const systemPrompt = [
+    input.knowledgeContext,
+    "",
+    "งาน: ตอบคำถามของแอดมินเป็นภาษาไทยที่อ่านง่าย",
+    "ใช้ความรู้หัวใจ 4 ห้อง โครงสร้างข้อ 1–38 และสถิติสรุปที่ให้มาเป็นหลัก",
+    "ตัวเลขจากแบบสำรวจชาวไร่: ใช้เฉพาะจากสถิติสรุปใน context ห้ามแต่งหรือเดา",
+    "ถ้าถามรายชื่อรายบุคคลหรือพิกัดแปลง: อธิบายว่าต้องถามในรูปแบบที่ระบบรองรับ (ดูความสามารถของระบบด้านล่าง) อย่าแต่งชื่อหรือพิกัด",
+    "ถ้าข้อมูลใน context ไม่พอ ให้บอกตรงๆ ว่าตอบไม่ได้จากข้อมูลที่มี",
+    "ไม่ต้องพูดถึง RAG embedding หรือเทคนิคภายใน",
+    "ความยาวพอดีกับคำถาม (มัก 3–10 ประโยค)",
+  ].join("\n");
+
+  const llmResult = await chatWithGemini({
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: input.question },
+    ],
+    maxTokens: 900,
+    temperature: 0.35,
+  });
+
+  if (!llmResult.ok) return llmResult;
+
+  return {
+    ok: true,
+    answer: llmResult.content,
+    model: llmResult.model,
+    provider: llmResult.provider,
+  };
+}
+
 export async function generateAdminAiRagAnswer(input: {
   question: string;
   contextBlocks: string[];

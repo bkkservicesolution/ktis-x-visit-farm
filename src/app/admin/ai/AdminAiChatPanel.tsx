@@ -203,7 +203,7 @@ export function AdminAiChatPanel() {
                 <div className="text-xs font-medium tracking-wide text-muted">Natural Language Analytics Chat</div>
                 <h3 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">ถามคำถามเหมือนคุยกับผู้ช่วยจริง</h3>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-                  ระบบตอบจากสถิติแบบสำรวจทั้งชุดและความรู้ที่กำหนดไว้ ไม่สุ่มตัวอย่างจากข้อมูล
+                  ตอบจากสถิติทั้งชุดและความรู้แบบสำรวจ — คำถามเฉพาะทางยังแม่นยำด้วยระบบ คำถามอื่น Gemini ช่วยสรุปจากข้อมูลที่มี
                 </p>
               </div>
 
