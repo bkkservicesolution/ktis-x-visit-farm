@@ -2,8 +2,6 @@
  * List plots/farmers from snapshot when the question asks "which farmers/plots…"
  * or who should receive help in a given area (mapped to survey "problem" answers).
  */
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
 const nf = new Intl.NumberFormat("th-TH");
 const MAX_LIST = 40;
 
@@ -299,6 +297,7 @@ function matchFarmerReasons(
 }
 
 async function fetchAllSnapshotRows(): Promise<SnapshotRow[]> {
+  const { supabaseAdmin } = await import("@/lib/supabaseAdmin");
   const pageSize = 500;
   const out: SnapshotRow[] = [];
   let offset = 0;
@@ -370,14 +369,13 @@ function formatListAnswer(topics: SurveyListTopic[], total: number, matches: Lis
   return lines.join("\n");
 }
 
-export async function tryAnswerSurveyListQuestion(question: string): Promise<string | null> {
+export function tryAnswerSurveyListFromRows(question: string, rows: SnapshotRow[]): string | null {
   const trimmed = question.trim();
   if (!trimmed || !isFarmerListQuestion(trimmed)) return null;
 
   const topics = detectTopics(trimmed);
   if (topics.length === 0) return null;
 
-  const rows = await fetchAllSnapshotRows();
   const matches: ListMatch[] = [];
 
   for (const row of rows) {
@@ -396,4 +394,11 @@ export async function tryAnswerSurveyListQuestion(question: string): Promise<str
   }
 
   return formatListAnswer(topics, rows.length, matches);
+}
+
+export async function tryAnswerSurveyListQuestion(question: string): Promise<string | null> {
+  const trimmed = question.trim();
+  if (!trimmed || !isFarmerListQuestion(trimmed)) return null;
+  const rows = await fetchAllSnapshotRows();
+  return tryAnswerSurveyListFromRows(trimmed, rows);
 }

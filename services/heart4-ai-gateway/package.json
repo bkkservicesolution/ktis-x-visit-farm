@@ -1,0 +1,16 @@
+{
+  "name": "heart4-ai-gateway",
+  "private": true,
+  "scripts": {
+    "start": "npx tsx --tsconfig tsconfig.json scripts/run-heart4-ai-gateway.ts",
+    "gateway": "npx tsx --tsconfig tsconfig.json scripts/run-heart4-ai-gateway.ts",
+    "pack": "powershell -ExecutionPolicy Bypass -File scripts/pack-heart4-ai-gateway.ps1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.103.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

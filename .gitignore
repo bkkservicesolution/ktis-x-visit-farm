@@ -20,6 +20,9 @@
 # production
 /build
 
+# gateway VM pack scratch under repo (use npm run pack:ai-gateway — zip อยู่นอก repo)
+/dist/
+
 # misc
 .DS_Store
 *.pem

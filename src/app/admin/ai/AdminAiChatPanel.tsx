@@ -26,9 +26,10 @@ type ChatSuccessResponse = {
     relations: string[];
   };
   llm: null | {
-    provider: "gemini";
+    provider: "gemini" | "ollama";
     model: string;
   };
+  sessionId?: string;
   suggestions: string[];
 };
 
@@ -55,18 +56,35 @@ type ChatMessage =
       response?: ChatResponse;
     };
 
+const AI_SESSION_KEY = "ktisx_admin_ai_session_id";
+
+function getStoredSessionId(): string {
+  if (typeof window === "undefined") return "";
+  let id = sessionStorage.getItem(AI_SESSION_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(AI_SESSION_KEY, id);
+  }
+  return id;
+}
+
 export function AdminAiChatPanel() {
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState(false);
   const [inputRows, setInputRows] = useState(1);
+  const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "intro-assistant",
       role: "assistant",
-      text: "สวัสดีครับ ผมพร้อมตอบจากข้อมูลจริงของแบบสำรวจหัวใจ 4 ห้อง — สรุปสถิติทั้งชุด ความรู้ KTIS และรายละเอียดข้อคำถาม คุณพิมพ์ถามได้เลยครับ",
+      text: "สวัสดีครับ ผมพร้อมตอบจากข้อมูลจริงของแบบสำรวจหัวใจ 4 ห้อง — จำบทสนทนาในช่วงนี้ได้ และรับคำสอน (เช่น 「จำไว้: ถ้าถาม… ให้ตอบ…」) คุณพิมพ์ถามได้เลยครับ",
     },
   ]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setSessionId(getStoredSessionId());
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -97,7 +115,10 @@ export function AdminAiChatPanel() {
         method: "POST",
         headers: { "content-type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({ question: nextQuestion }),
+        body: JSON.stringify({
+          question: nextQuestion,
+          sessionId: sessionId || getStoredSessionId(),
+        }),
       });
 
       const json = (await res.json().catch(() => null)) as ChatResponse | null;
@@ -326,7 +347,7 @@ export function AdminAiChatPanel() {
                           {
                             id: "intro-assistant",
                             role: "assistant",
-                            text: "สวัสดีครับ ผมพร้อมตอบจากข้อมูลจริงของแบบสำรวจหัวใจ 4 ห้อง — สรุปสถิติทั้งชุด ความรู้ KTIS และรายละเอียดข้อคำถาม คุณพิมพ์ถามได้เลยครับ",
+                            text: "สวัสดีครับ ผมพร้อมตอบจากข้อมูลจริงของแบบสำรวจหัวใจ 4 ห้อง — จำบทสนทนาในช่วงนี้ได้ และรับคำสอน (เช่น 「จำไว้: ถ้าถาม… ให้ตอบ…」) คุณพิมพ์ถามได้เลยครับ",
                           },
                         ])
                       }

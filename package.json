@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "pack:ai-gateway": "powershell -ExecutionPolicy Bypass -File services/heart4-ai-gateway/scripts/pack-heart4-ai-gateway.ps1"
   },
   "dependencies": {
     "@imgly/background-removal-node": "^1.4.5",

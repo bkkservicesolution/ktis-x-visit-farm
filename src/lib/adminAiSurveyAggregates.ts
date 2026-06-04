@@ -7,8 +7,6 @@ import {
   type QuestionAggregate,
   type SurveyAggregateDataset,
 } from "@/lib/heart4SurveyAggregateBuilder";
-import { loadSurveyAggregatesDataset } from "@/lib/heart4SurveyAggregatesStore";
-
 const nf = new Intl.NumberFormat("th-TH");
 
 const QUESTION_NUM_PATTERNS = [
@@ -167,17 +165,14 @@ function isSurveyStructureOnly(text: string): boolean {
   );
 }
 
-/** Deterministic full-population stats from all surveys in aggregates JSON. */
-export async function tryAnswerSurveyAggregateQuestion(question: string): Promise<string | null> {
+/** Deterministic full-population stats when dataset is already loaded (e.g. Heart4 AI Gateway). */
+export function tryAnswerSurveyAggregateWithDataset(
+  question: string,
+  ds: SurveyAggregateDataset,
+): string | null {
   const trimmed = question.trim();
   if (!trimmed) return null;
 
-  const check = verifySurveyAggregatesDataset(await loadSurveyAggregatesDataset());
-  if (!check.ok) {
-    return "ยังไม่มีข้อมูลสรุปสถิติแบบสำรวจ — ไปที่เมนู จัดการ RAG Index แล้วกด「อัปเดตสถิติสำหรับ AI」(หลัง Snapshot)";
-  }
-
-  const ds = check.data;
 
   const qNum = parseQuestionNumber(trimmed);
   if (qNum && !isSurveyStructureOnly(trimmed)) {
@@ -231,6 +226,20 @@ export async function tryAnswerSurveyAggregateQuestion(question: string): Promis
   return parts.join("\n\n");
 }
 
+/** Deterministic full-population stats from all surveys in aggregates JSON. */
+export async function tryAnswerSurveyAggregateQuestion(question: string): Promise<string | null> {
+  const trimmed = question.trim();
+  if (!trimmed) return null;
+
+  const { loadSurveyAggregatesDataset } = await import("@/lib/heart4SurveyAggregatesStore");
+  const check = verifySurveyAggregatesDataset(await loadSurveyAggregatesDataset());
+  if (!check.ok) {
+    return "ยังไม่มีข้อมูลสรุปสถิติแบบสำรวจ — ไปที่เมนู จัดการ RAG Index แล้วกด「อัปเดตสถิติสำหรับ AI」(หลัง Snapshot)";
+  }
+
+  return tryAnswerSurveyAggregateWithDataset(trimmed, check.data);
+}
+
 export async function buildSurveyAggregateKnowledgeChunks(): Promise<
   Array<{
     question_key: string;
@@ -238,6 +247,7 @@ export async function buildSurveyAggregateKnowledgeChunks(): Promise<
     content: string;
   }>
 > {
+  const { loadSurveyAggregatesDataset } = await import("@/lib/heart4SurveyAggregatesStore");
   const check = verifySurveyAggregatesDataset(await loadSurveyAggregatesDataset());
   if (!check.ok) return [];
   const ds = check.data;

@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 
 type RequestBody = {
   question?: unknown;
+  sessionId?: unknown;
 };
 
 async function getRole(): Promise<KtisxRole | null> {
@@ -23,7 +24,8 @@ export async function POST(req: Request) {
 
   const body = (await req.json().catch(() => null)) as RequestBody | null;
   const question = typeof body?.question === "string" ? body.question : "";
-  const result = await askAdminAi(question);
+  const sessionId = typeof body?.sessionId === "string" ? body.sessionId : null;
+  const result = await askAdminAi(question, { sessionId });
   const { status, ...json } = result;
   return NextResponse.json(json, { status });
 }

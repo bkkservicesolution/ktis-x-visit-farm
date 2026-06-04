@@ -3,6 +3,8 @@ import {
   answerAdminAiOpenQuestion,
   summarizeSurveyStatsWithGemini,
 } from "@/lib/adminAiLlmBackend";
+import { isGatewayProxyConfigured } from "@/lib/heart4AiGateway/gatewayProxyConfig";
+import { askAdminAiViaGateway } from "@/lib/heart4AiGateway/vmClient";
 import { buildAdminAiSurveyKnowledgeContext } from "@/lib/adminAiOpenChat";
 import { tryAnswerHarvestStatsQuestion } from "@/lib/adminAiHarvestStats";
 import { tryAnswerDomainKnowledgeQuestion } from "@/lib/adminAiDomainKnowledge";
@@ -134,7 +136,10 @@ async function answerFromSurveyStats(
   );
 }
 
-export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
+export async function askAdminAi(
+  question: string,
+  options?: { sessionId?: string | null },
+): Promise<AdminAiChatResult> {
   const trimmed = question.trim();
   if (!trimmed) {
     return {
@@ -143,6 +148,10 @@ export async function askAdminAi(question: string): Promise<AdminAiChatResult> {
       error: "EMPTY_QUESTION",
       message: "กรุณาพิมพ์คำถามก่อนส่ง",
     };
+  }
+
+  if (isGatewayProxyConfigured()) {
+    return askAdminAiViaGateway({ question: trimmed, sessionId: options?.sessionId });
   }
 
   const harvestAnswer = tryAnswerHarvestStatsQuestion(trimmed);

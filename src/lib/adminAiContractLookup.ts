@@ -1,8 +1,6 @@
 /**
  * Lookup farmer / check-in coordinates by contract number (Heart4Rooms snapshot).
  */
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
 const CHECKIN_SECTION_TITLE = "เช็คอิน — พิกัดและเวลาถ่ายรูป";
 
 type SurveyRow = {
@@ -124,6 +122,7 @@ function formatCheckinTime(iso: string): string {
 }
 
 async function queryByContract(contractRaw: string): Promise<SurveyRow[]> {
+  const { supabaseAdmin } = await import("@/lib/supabaseAdmin");
   const candidates = contractCandidates(contractRaw);
 
   for (const contractNo of candidates) {
@@ -162,6 +161,70 @@ function formatSurveyDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" });
+}
+
+function findRowsByContract(rows: SurveyRow[], contractRaw: string): SurveyRow[] {
+  const candidates = contractCandidates(contractRaw);
+  for (const contractNo of candidates) {
+    const hits = rows
+      .filter((r) => r.contract_no === contractNo)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 5);
+    if (hits.length) return hits;
+  }
+  const digits = contractRaw.replace(/\D/g, "");
+  if (digits) {
+    return rows
+      .filter((r) => r.contract_no.includes(digits))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 5);
+  }
+  return [];
+}
+
+export function tryAnswerContractLookupFromRows(question: string, rows: SurveyRow[]): string | null {
+  if (!isContractLookupQuestion(question)) return null;
+
+  const contractQuery = extractContractNoFromQuestion(question);
+  if (!contractQuery) return null;
+
+  const matched = findRowsByContract(rows, contractQuery);
+  if (matched.length === 0) {
+    return [
+      `ไม่พบแบบสำรวจสำหรับเลขสัญญา "${contractQuery}"`,
+      "ลองตรวจเลขสัญญาอีกครั้ง หรืออัปเดตไฟล์ Export JSON บนเครื่อง AI",
+    ].join("\n");
+  }
+
+  const row = matched[0];
+  const name = `${row.farmer_first_name} ${row.farmer_last_name}`.trim() || "—";
+  const { lat, lng, takenAt } = parseCheckin(row.answers);
+  const photoUrl = resolveCheckinPhotoUrl(row);
+
+  const lines: string[] = [
+    `เลขสัญญา: ${row.contract_no}`,
+    `ชื่อเกษตรกร: ${name}`,
+    `ผู้กรอกแบบ: ${row.submitter_display_name || "—"}`,
+    row.promoter_id ? `รหัสนักส่งเสริม: ${row.promoter_id}` : null,
+    `วันที่บันทึกแบบสำรวจ: ${formatSurveyDateTime(row.created_at)}`,
+    "",
+    CHECKIN_SECTION_TITLE,
+    ...formatCheckinMetaLines(lat, lng, takenAt),
+  ].filter((x): x is string => Boolean(x));
+
+  if (lat != null && lng != null) {
+    lines.push("", `เปิดแผนที่: https://www.google.com/maps?q=${lat},${lng}`);
+  }
+
+  if (photoUrl) {
+    lines.push("", `ถ่ายรูปเช็คอินหน้างาน (ลิงก์สำรอง): ${photoUrl}`);
+  }
+
+  if (matched.length > 1) {
+    lines.push("", `หมายเหตุ: พบ ${matched.length} แบบที่ตรงเลขสัญญา — แสดงรายการล่าสุด`);
+  }
+
+  return lines.join("\n");
 }
 
 export async function tryAnswerContractLookup(question: string): Promise<string | null> {
