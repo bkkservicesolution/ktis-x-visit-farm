@@ -37,7 +37,7 @@ type RefineError = {
 
 export type RefineResult = RefineSuccess | RefineError;
 
-export type AdminAiLlmProvider = "gemini";
+export type AdminAiLlmProvider = "gemini" | "ollama";
 
 function normalizeEnvValue(value: string | undefined): string | null {
   const trimmed = value?.trim();
