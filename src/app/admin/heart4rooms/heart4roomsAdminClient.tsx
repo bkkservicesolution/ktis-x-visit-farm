@@ -158,7 +158,6 @@ export function Heart4RoomsAdminClient() {
   const exportPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
   const exportStartLockRef = useRef(false);
-  const [jsonExportPending, setJsonExportPending] = useState(false);
 
   const [exportNotice, setExportNotice] = useState<{
     open: boolean;
@@ -312,71 +311,6 @@ export function Heart4RoomsAdminClient() {
     if (ids.length) sp.set("ids", ids.join(","));
     sp.set("embed_images", embedImages ? "1" : "0");
     return sp;
-  }
-
-  function buildJsonExportQueryParams(ids: string[]): URLSearchParams {
-    const sp = new URLSearchParams();
-    if (q.trim()) sp.set("q", q.trim());
-    if (promoterId.trim()) sp.set("promoter_id", promoterId.trim());
-    if (from) sp.set("from", from);
-    if (to) sp.set("to", to);
-    if (ids.length) sp.set("ids", ids.join(","));
-    return sp;
-  }
-
-  async function startJsonExport(kind: "all" | "selected") {
-    if (jsonExportPending || exportLocked) return;
-
-    const ids =
-      kind === "selected"
-        ? Object.entries(selectedIds)
-            .filter(([, v]) => v)
-            .map(([id]) => id)
-        : [];
-
-    if (kind === "selected" && ids.length === 0) return;
-
-    setJsonExportPending(true);
-    try {
-      const sp = buildJsonExportQueryParams(ids);
-      const res = await fetch(`/api/surveys/heart4rooms/json?${sp.toString()}`, {
-        method: "GET",
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        const json = (await res.json().catch(() => null)) as { error?: string } | null;
-        setExportNotice({
-          open: true,
-          tone: "error",
-          text: json?.error === "DB_ERROR" ? "โหลดข้อมูลไม่สำเร็จ" : "Export JSON ไม่สำเร็จ",
-          jobId: null,
-        });
-        return;
-      }
-
-      const blob = await res.blob();
-      const ts = new Date().toISOString().replaceAll(":", "-");
-      const filename =
-        filenameFromContentDisposition(res.headers.get("content-disposition")) ??
-        `ktisx_heart4rooms_decoded_${ts}.json`;
-      triggerBlobDownload(blob, filename);
-      setExportNotice({
-        open: true,
-        tone: "ok",
-        text: "ดาวน์โหลด JSON สำหรับ AI เสร็จแล้ว (มีข้อความถอดความภาษาไทย)",
-        jobId: null,
-      });
-    } catch {
-      setExportNotice({
-        open: true,
-        tone: "error",
-        text: "Export JSON ไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",
-        jobId: null,
-      });
-    } finally {
-      setJsonExportPending(false);
-    }
   }
 
   async function startExportSync(ids: string[], embedImages: boolean) {
@@ -893,25 +827,6 @@ export function Heart4RoomsAdminClient() {
               className="inline-flex items-center justify-center rounded-2xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-foreground/5 disabled:opacity-40"
             >
               Export ที่เลือก (ไม่แทรกรูป) ({selectedCount})
-            </button>
-
-            <button
-              type="button"
-              disabled={pending || exportLocked || jsonExportPending}
-              onClick={() => void startJsonExport("all")}
-              className="inline-flex items-center justify-center rounded-2xl border border-emerald-600/40 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100 disabled:opacity-40 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-100 dark:hover:bg-emerald-950/60"
-              title="JSON สำหรับ AI บน VM — มี decoded_text ภาษาไทยจากแคตตาล็อกข้อ 1–38"
-            >
-              {jsonExportPending ? "กำลัง Export JSON…" : "Export JSON (สำหรับ AI)"}
-            </button>
-
-            <button
-              type="button"
-              disabled={pending || exportLocked || jsonExportPending || selectedCount === 0}
-              onClick={() => void startJsonExport("selected")}
-              className="inline-flex items-center justify-center rounded-2xl border border-emerald-600/40 bg-background px-4 py-2.5 text-sm font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-50 disabled:opacity-40 dark:border-emerald-500/30 dark:text-emerald-100 dark:hover:bg-emerald-950/40"
-            >
-              Export JSON ที่เลือก ({selectedCount})
             </button>
           </div>
         </div>
