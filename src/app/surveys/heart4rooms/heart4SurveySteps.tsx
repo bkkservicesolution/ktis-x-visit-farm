@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { H4Answers } from "@/app/surveys/heart4rooms/heart4roomsClient";
 import { Camera, SwitchCamera, X } from "lucide-react";
 
@@ -120,25 +120,6 @@ function qArr(answers: H4Answers, key: string): string[] {
   const v = answers[key];
   return Array.isArray(v) ? (v as string[]) : [];
 }
-
-function setChoice(
-  mergeField: Heart4SurveyStepsProps["mergeField"],
-  key: string,
-  choice: "a" | "b" | "c",
-) {
-  mergeField(key, { choice });
-}
-
-function setChoiceBoth(
-  mergeField: Heart4SurveyStepsProps["mergeField"],
-  key: string,
-  choice: "a" | "b" | "c",
-) {
-  // If user fills both sections, keep last touched as `choice`.
-  // We still keep the detailed fields so data isn't lost.
-  mergeField(key, { choice });
-}
-
 
 function Step1({ answers, mergeField }: Heart4SurveyStepsProps) {
   const v = qObj(answers, "q1");

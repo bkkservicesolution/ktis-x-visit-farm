@@ -33,10 +33,6 @@ function getErrorMessage(json: OkResponse | null, fallback: string): string {
   return fallback;
 }
 
-function roleLabel(role: UserRole): string {
-  return role === "admin" ? "admin" : "user";
-}
-
 type ModalState =
   | { type: "none" }
   | { type: "create"; draft: CreateDraft }

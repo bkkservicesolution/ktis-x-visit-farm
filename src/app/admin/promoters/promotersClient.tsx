@@ -240,10 +240,10 @@ function PromoterMobileRow({
   const [name, setName] = useState(row.full_name);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    /* eslint-disable react-hooks/set-state-in-effect -- sync local edit state when parent row changes */
     setId(row.id);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(row.full_name);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [row.full_name, row.id]);
 
   return (
@@ -347,10 +347,10 @@ function PromoterRowItem({
   const [name, setName] = useState(row.full_name);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    /* eslint-disable react-hooks/set-state-in-effect -- sync local edit state when parent row changes */
     setId(row.id);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(row.full_name);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [row.full_name, row.id]);
 
   return (

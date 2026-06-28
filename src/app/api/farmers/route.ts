@@ -44,7 +44,6 @@ export async function GET(req: Request) {
 
   // For non-ASCII / Thai identifiers, PostgREST filters are most reliable when quoted.
   const COL_CONTRACT = '"เลขสัญญาชาวไร่"';
-  const COL_TITLE = '"คำนำหน้าชื่อ"';
   const COL_FIRST = '"ชื่อ"';
   const COL_LAST = '"นามสกุล"';
 

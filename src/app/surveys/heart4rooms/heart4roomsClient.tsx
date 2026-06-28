@@ -821,7 +821,7 @@ export function Heart4RoomsClient() {
     [answers, contractNo, farmerFirst, farmerLast, submitterDisplayName],
   );
 
-  async function onSubmit() {
+  const onSubmit = useCallback(async () => {
     setMessage(null);
     setPending(true);
     try {
@@ -861,7 +861,7 @@ export function Heart4RoomsClient() {
     } finally {
       setPending(false);
     }
-  }
+  }, [answers, contractNo, farmerFirst, farmerLast, me, submitterDisplayName]);
 
   const closeMessage = useCallback(() => {
     if (message?.type === "ok") {
